@@ -389,6 +389,9 @@ class MQTTService {
           ? (change.manualOverride ? 'manual_on' : 'on')
           : (change.manualOverride ? 'manual_off' : 'off');
         
+        const timestamp = new Date();
+        const hour = timestamp.getHours();
+        
         await ActivityLog.create({
           deviceId: device._id,
           deviceName: device.name,
@@ -398,7 +401,7 @@ class MQTTService {
           triggeredBy: change.manualOverride ? 'manual_switch' : 'system',
           classroom: device.classroom,
           location: device.location,
-          timestamp: new Date(),
+          timestamp,
           context: {
             source: 'esp32_state_update',
             previousState: change.oldState,
@@ -406,11 +409,69 @@ class MQTTService {
             manualOverride: change.manualOverride
           }
         });
+
+        // Check for lights turned on after 5 PM (17:00)
+        if (change.newState && change.switchName && change.switchName.toLowerCase().includes('light')) {
+          if (hour >= 17 || hour < 6) { // After 5 PM or before 6 AM
+            await this.sendAfterHoursLightAlert(device, change, timestamp);
+          }
+        }
       }
       
       logger.debug(`[MQTT] Logged ${stateChanges.length} activity changes`);
     } catch (error) {
       logger.error('[MQTT] Error logging activity changes', { error: error.message });
+    }
+  }
+
+  /**
+   * Send immediate alert for lights turned on after hours
+   */
+  async sendAfterHoursLightAlert(device, change, timestamp) {
+    try {
+      const telegramService = require('./telegramService');
+      
+      const hour = timestamp.getHours();
+      const isAfterHours = hour >= 17 || hour < 6;
+      
+      if (!isAfterHours) return; // Should not happen, but double-check
+      
+      logger.info(`[MQTT] Light turned on after hours: ${change.switchName} in ${device.classroom || 'Unknown'} at ${timestamp.toLocaleTimeString()}`);
+      
+      // Create alert message
+      let message = `🚨 *Light Turned On After Hours*\n\n`;
+      message += `⚠️ A light switch was activated after 5:00 PM\n\n`;
+      message += `*Device:* ${device.name}\n`;
+      message += `*Switch:* ${change.switchName}\n`;
+      message += `*Location:* ${device.classroom || 'Unknown Classroom'}\n`;
+      if (device.location) {
+        message += `*Room:* ${device.location}\n`;
+      }
+      message += `*Time:* ${timestamp.toLocaleTimeString()}\n`;
+      message += `*Triggered by:* ${change.manualOverride ? 'Manual Switch' : 'System/Automation'}\n\n`;
+      message += `Please verify if this light should remain on for security or maintenance purposes.`;
+      
+      // Prepare alert data
+      const alertData = {
+        alertname: 'Light Activated After Hours',
+        summary: `${change.switchName} turned on in ${device.classroom || 'Unknown'} after 5 PM`,
+        description: message,
+        severity: 'warning',
+        instance: 'realtime_light_monitor',
+        value: 1,
+        classroom: device.classroom,
+        deviceName: device.name,
+        switchName: change.switchName
+      };
+
+      // Send alert to security personnel
+      const results = await telegramService.sendAlert('switchesOnAfter5PM', alertData);
+      
+      const successCount = results.filter(r => r.success).length;
+      logger.info(`[MQTT] After-hours light alert sent to ${successCount}/${results.length} security personnel`);
+      
+    } catch (error) {
+      logger.error('[MQTT] Error sending after-hours light alert', { error: error.message });
     }
   }
 

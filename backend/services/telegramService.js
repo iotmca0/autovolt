@@ -949,7 +949,8 @@ class TelegramService {
           `3. Maintenance Alerts - Device maintenance alerts (admins only)\n` +
           `4. Energy Alerts - Energy conservation alerts\n` +
           `5. System Alerts - System health notifications (admins only)\n` +
-          `6. User Alerts - User-related notifications (admins only)\n\n` +
+          `6. User Alerts - User-related notifications (admins only)\n` +
+          `7. After-Hours Lights - Alerts when lights are turned on after 5 PM\n\n` +
           `*Commands:*\n` +
           `• \`/subscribe\` - Show all available alerts\n` +
           `• \`/subscribe <number>\` - Subscribe to alert type\n` +
@@ -957,6 +958,7 @@ class TelegramService {
           `• \`/status 5\` - View your current subscriptions\n\n` +
           `*Examples:*\n` +
           `• \`/subscribe 4\` - Subscribe to Energy Alerts\n` +
+          `• \`/subscribe 7\` - Subscribe to After-Hours Lights\n` +
           `• \`/unsubscribe 2\` - Stop Security Alerts\n\n` +
           `💡 *Role-based access:* Some alerts are admin-only`;
         break;
@@ -1285,7 +1287,8 @@ class TelegramService {
       3: { key: 'maintenance_alerts', name: 'Maintenance Alerts', description: 'Device maintenance alerts (admins only)' },
       4: { key: 'energy_alerts', name: 'Energy Alerts', description: 'Energy conservation alerts' },
       5: { key: 'system_alerts', name: 'System Alerts', description: 'System health notifications (admins only)' },
-      6: { key: 'user_alerts', name: 'User Alerts', description: 'User-related notifications (admins only)' }
+      6: { key: 'user_alerts', name: 'User Alerts', description: 'User-related notifications (admins only)' },
+      7: { key: 'switchesOnAfter5PM', name: 'After-Hours Lights', description: 'Alerts when lights are turned on after 5 PM' }
     };
   }
 

@@ -75,7 +75,8 @@ const telegramUserSchema = new mongoose.Schema({
       'maintenance_alerts', // Device maintenance alerts
       'energy_alerts',     // Energy conservation alerts
       'system_alerts',     // System health alerts
-      'user_alerts'        // User-related notifications
+      'user_alerts',       // User-related notifications
+      'switchesOnAfter5PM' // After-hours lights alerts
     ]
   }],
 
