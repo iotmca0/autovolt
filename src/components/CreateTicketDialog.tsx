@@ -107,10 +107,21 @@ const CreateTicketDialog: React.FC<CreateTicketDialogProps> = ({ onTicketCreated
             });
             onTicketCreated?.();
         } catch (error: unknown) {
+            console.error('Ticket creation error:', error);
             let message = 'Failed to create ticket. Please try again.';
-            if (error && typeof error === 'object' && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
-                message = (error as { message: string }).message;
+            
+            // Handle different error formats
+            if (error && typeof error === 'object') {
+                // Check for API error response format
+                if ('error' in error && typeof (error as any).error === 'string') {
+                    message = (error as any).error;
+                } else if ('message' in error && typeof (error as any).message === 'string') {
+                    message = (error as any).message;
+                } else if ('details' in error && typeof (error as any).details === 'string') {
+                    message = (error as any).details;
+                }
             }
+            
             toast({
                 title: "Error",
                 description: message,

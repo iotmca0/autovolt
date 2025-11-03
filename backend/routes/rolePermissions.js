@@ -4,9 +4,8 @@ const RolePermissions = require('../models/RolePermissions');
 const { auth, authorize } = require('../middleware/auth');
 const { logger } = require('../middleware/logger');
 
-// All role permissions routes require authentication and admin authorization
+// All role permissions routes require authentication
 router.use(auth);
-router.use(authorize('admin', 'super-admin'));
 
 // Helper function to sanitize role permissions for client
 const toClientRolePermissions = (rp) => ({
@@ -34,32 +33,7 @@ const toClientRolePermissions = (rp) => ({
   updatedAt: rp.updatedAt
 });
 
-// GET /api/role-permissions - Get all role permissions
-router.get('/', async (req, res) => {
-  try {
-    const rolePermissions = await RolePermissions.find({ 'metadata.isActive': true })
-      .sort({ role: 1 });
-
-    logger.info(`[ROLE_PERMISSIONS] Retrieved ${rolePermissions.length} role permissions`, {
-      userId: req.user.id,
-      userName: req.user.name
-    });
-
-    res.json({
-      success: true,
-      data: rolePermissions.map(toClientRolePermissions)
-    });
-  } catch (error) {
-    logger.error('[ROLE_PERMISSIONS] Error fetching role permissions:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching role permissions',
-      error: error.message
-    });
-  }
-});
-
-// GET /api/role-permissions/:role - Get permissions for a specific role
+// GET /api/role-permissions/:role - Get permissions for a specific role (users can access their own)
 router.get('/:role', async (req, res) => {
   try {
     const { role } = req.params;
@@ -68,6 +42,14 @@ router.get('/:role', async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid role specified'
+      });
+    }
+
+    // Users can only access their own role permissions or admins can access any
+    if (req.user.role !== role && !['admin', 'super-admin'].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'User role ' + req.user.role + ' is not authorized to access this resource'
       });
     }
 
@@ -94,6 +76,34 @@ router.get('/:role', async (req, res) => {
     });
   } catch (error) {
     logger.error(`[ROLE_PERMISSIONS] Error fetching permissions for role ${req.params.role}:`, error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching role permissions',
+      error: error.message
+    });
+  }
+});
+
+// All other routes require admin authorization
+router.use(authorize('admin', 'super-admin'));
+
+// GET /api/role-permissions - Get all role permissions
+router.get('/', async (req, res) => {
+  try {
+    const rolePermissions = await RolePermissions.find({ 'metadata.isActive': true })
+      .sort({ role: 1 });
+
+    logger.info(`[ROLE_PERMISSIONS] Retrieved ${rolePermissions.length} role permissions`, {
+      userId: req.user.id,
+      userName: req.user.name
+    });
+
+    res.json({
+      success: true,
+      data: rolePermissions.map(toClientRolePermissions)
+    });
+  } catch (error) {
+    logger.error('[ROLE_PERMISSIONS] Error fetching role permissions:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching role permissions',

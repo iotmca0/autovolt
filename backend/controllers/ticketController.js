@@ -154,6 +154,44 @@ const createTicket = async (req, res) => {
             await Promise.all(notificationPromises);
         }
 
+        // Create notifications for admins about new ticket
+        try {
+            const adminRoles = ['super-admin', 'admin', 'dean'];
+            const admins = await require('../models/User').find({
+                role: { $in: adminRoles },
+                isActive: true,
+                isApproved: true
+            }).select('_id name email role department');
+
+            const adminNotificationPromises = admins.map(admin =>
+                Notification.createTicketNotification({
+                    recipient: admin._id,
+                    ticketId: ticket._id,
+                    ticketTitle: ticket.title,
+                    ticketCategory: ticket.category,
+                    ticketPriority: ticket.priority,
+                    createdBy: req.user.name,
+                    department: ticket.department
+                })
+            );
+
+            await Promise.all(adminNotificationPromises);
+
+            // Emit real-time notifications to admins
+            if (req.app.get('io')) {
+                admins.forEach(admin => {
+                    req.app.get('io').to(`user_${admin._id}`).emit('notification', {
+                        type: 'ticket_created',
+                        message: `New ${ticket.category} ticket created by ${req.user.name}`,
+                        ticketId: ticket.ticketId,
+                        priority: ticket.priority
+                    });
+                });
+            }
+        } catch (adminNotificationError) {
+            console.error('Error creating admin notifications for new ticket:', adminNotificationError);
+        }
+
         // Emit notification to admins
         if (req.app.get('io')) {
             req.app.get('io').emit('system_notification', {

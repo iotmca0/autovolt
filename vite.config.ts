@@ -5,7 +5,7 @@ import path from "path";
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
-    host: '0.0.0.0',  // Bind to all interfaces
+    host: '172.16.3.171',  // Bind to specific IP for multi-user access
     port: 5173,
     proxy: {
       '/api': {

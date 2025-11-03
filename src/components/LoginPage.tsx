@@ -139,7 +139,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           <div className="mt-4 p-4 bg-muted rounded-lg">
             <p className="text-sm font-medium mb-2">Default Admin Account:</p>
             <p className="text-xs text-muted-foreground">
-              Email: admin@autovolt.com<br />
+              Email: admin@college.edu<br />
               Password: admin123456
             </p>
           </div>

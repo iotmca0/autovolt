@@ -1698,7 +1698,7 @@ app.use('*', (req, res) => {
 
 // Start the server (single attempt)
 const PORT = process.env.PORT || 3001; // Changed back to 3001 after debugging
-const HOST = process.env.HOST || '0.0.0.0'; // Use environment variable or bind to all interfaces
+const HOST = process.env.HOST || '172.16.3.171'; // Bind to specific IP for multi-user access
 
 console.log('[DEBUG] About to call server.listen...');
 console.log(`[DEBUG] PORT: ${PORT}, HOST: ${HOST}`);

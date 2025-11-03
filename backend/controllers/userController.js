@@ -482,6 +482,43 @@ const toggleUserStatus = async (req, res) => {
 
     if (!user) return res.status(404).json({ message: 'User not found' });
 
+    // Send notification to the user about status change
+    try {
+      const Notification = require('../models/Notification');
+
+      if (isActive) {
+        // User was approved/activated
+        await Notification.createAccountApprovalNotification({
+          recipient: user._id,
+          approvedBy: req.user.name,
+          userRole: user.role,
+          department: user.department
+        });
+      } else {
+        // User was deactivated (this would be rejection)
+        await Notification.createAccountRejectionNotification({
+          recipient: user._id,
+          rejectedBy: req.user.name,
+          rejectionReason: 'Account deactivated by administrator',
+          userRole: user.role,
+          department: user.department
+        });
+      }
+
+      // Emit real-time notification
+      if (req.app.get('io')) {
+        req.app.get('io').to(user._id.toString()).emit('notification', {
+          type: isActive ? 'account_approved' : 'account_rejected',
+          message: isActive
+            ? `Your account has been approved by ${req.user.name}`
+            : `Your account has been deactivated by ${req.user.name}`
+        });
+      }
+    } catch (notificationError) {
+      console.error('Error sending user status notification:', notificationError);
+      // Don't fail the request if notification fails
+    }
+
     res.json(toClientUser(user));
   } catch (error) {
     logger.error('Error updating user status:', error);
@@ -600,8 +637,34 @@ const bulkActivateUsers = async (req, res) => {
 
     const result = await User.updateMany(
       { _id: { $in: userIds } },
-      { isActive: true, lastModifiedBy: req.user._id, lastModifiedAt: new Date() }
+      { isActive: true, isApproved: true, lastModifiedBy: req.user._id, lastModifiedAt: new Date() }
     );
+
+    // Send notifications to activated users
+    try {
+      const Notification = require('../models/Notification');
+      const activatedUsers = await User.find({ _id: { $in: userIds } });
+
+      for (const user of activatedUsers) {
+        await Notification.createAccountApprovalNotification({
+          recipient: user._id,
+          approvedBy: req.user.name,
+          userRole: user.role,
+          department: user.department
+        });
+
+        // Emit real-time notification
+        if (req.app.get('io')) {
+          req.app.get('io').to(user._id.toString()).emit('notification', {
+            type: 'account_approved',
+            message: `Your account has been approved by ${req.user.name}`
+          });
+        }
+      }
+    } catch (notificationError) {
+      console.error('Error sending bulk activation notifications:', notificationError);
+      // Don't fail the request if notifications fail
+    }
 
     logger.info(`Bulk activated ${result.modifiedCount} users by ${req.user.email}`);
 

@@ -25,7 +25,8 @@ const notificationSchema = new mongoose.Schema({
             'extension_rejected',
             'ticket_mention',
             'ticket_status_change',
-            'ticket_assigned'
+            'ticket_assigned',
+            'ticket_created'
         ],
         required: true,
         index: true
@@ -412,23 +413,127 @@ notificationSchema.statics.createUserRegistrationNotification = async function (
     return notification;
 };
 
-// Static method to get unread notifications for a user
-notificationSchema.statics.getUnreadForUser = function (userId, limit = 50) {
-    return this.find({
-        recipient: userId,
-        isRead: false
-    })
-        .sort({ priority: -1, createdAt: -1 })
-        .limit(limit);
+// Static method to create ticket creation notification
+notificationSchema.statics.createTicketNotification = async function (data) {
+    const {
+        recipient,
+        ticketId,
+        ticketTitle,
+        ticketCategory,
+        ticketPriority,
+        createdBy,
+        department
+    } = data;
+
+    const notification = new this({
+        recipient,
+        type: 'ticket_created',
+        title: 'New Support Ticket Created',
+        message: `${createdBy} created a new ${ticketCategory} ticket: "${ticketTitle}"`,
+        priority: ticketPriority === 'urgent' || ticketPriority === 'high' ? 'high' : 'medium',
+        relatedEntity: {
+            model: 'Ticket',
+            id: ticketId
+        },
+        metadata: {
+            ticketId: ticketId,
+            category: ticketCategory,
+            priority: ticketPriority,
+            createdBy: createdBy,
+            department: department
+        },
+        actions: [
+            {
+                label: 'View Ticket',
+                action: 'view_ticket',
+                url: `/support`
+            },
+            {
+                label: 'Assign Ticket',
+                action: 'assign_ticket',
+                url: `/admin/tickets/${ticketId}/assign`
+            }
+        ]
+    });
+
+    await notification.save();
+    await notification.sendEmail();
+
+    return notification;
 };
 
-// Static method to cleanup old notifications
-notificationSchema.statics.cleanupOldNotifications = function () {
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    return this.deleteMany({
-        createdAt: { $lt: thirtyDaysAgo },
-        isRead: true
+// Static method to create account approval notification
+notificationSchema.statics.createAccountApprovalNotification = async function (data) {
+    const {
+        recipient,
+        approvedBy,
+        userRole,
+        department
+    } = data;
+
+    const notification = new this({
+        recipient,
+        type: 'account_approved',
+        title: 'Account Approved',
+        message: `Your account has been approved by ${approvedBy}. You can now access the system.`,
+        priority: 'low',
+        metadata: {
+            approvedBy: approvedBy,
+            userRole: userRole,
+            department: department,
+            approvalDate: new Date()
+        },
+        actions: [
+            {
+                label: 'Get Started',
+                action: 'dashboard',
+                url: '/dashboard'
+            }
+        ]
     });
+
+    await notification.save();
+    await notification.sendEmail();
+
+    return notification;
+};
+
+// Static method to create account rejection notification
+notificationSchema.statics.createAccountRejectionNotification = async function (data) {
+    const {
+        recipient,
+        rejectedBy,
+        rejectionReason,
+        userRole,
+        department
+    } = data;
+
+    const notification = new this({
+        recipient,
+        type: 'account_rejected',
+        title: 'Account Registration Rejected',
+        message: `Your account registration has been rejected by ${rejectedBy}. ${rejectionReason || 'Please contact an administrator for more information.'}`,
+        priority: 'medium',
+        metadata: {
+            rejectedBy: rejectedBy,
+            rejectionReason: rejectionReason,
+            userRole: userRole,
+            department: department,
+            rejectionDate: new Date()
+        },
+        actions: [
+            {
+                label: 'Contact Support',
+                action: 'contact_support',
+                url: '/support'
+            }
+        ]
+    });
+
+    await notification.save();
+    await notification.sendEmail();
+
+    return notification;
 };
 
 module.exports = mongoose.model('Notification', notificationSchema);
