@@ -1228,9 +1228,17 @@ const AnalyticsPanel: React.FC = () => {
                 <Activity className="h-4 w-4 text-yellow-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">94.2%</div>
+                <div className="text-2xl font-bold">
+                  {analyticsData?.devices && analyticsData.devices.length > 0
+                    ? (() => {
+                        const onlineDevices = analyticsData.devices.filter(d => d.status === 'online').length;
+                        const totalDevices = analyticsData.devices.length;
+                        return totalDevices > 0 ? ((onlineDevices / totalDevices) * 100).toFixed(1) : '0.0';
+                      })()
+                    : 'N/A'}%
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  Last 30 days
+                  Current uptime
                 </p>
               </CardContent>
             </Card>
@@ -1264,120 +1272,116 @@ const AnalyticsPanel: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
                   <div>
                     <h4 className="text-sm font-medium mb-3">Device Types</h4>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <PieChart>
-                        <Pie
-                          data={(() => {
-                            const switchTypeCounts = analyticsData?.devices?.reduce((acc: any, device: any) => {
-                              if (device.switches && Array.isArray(device.switches)) {
-                                device.switches.forEach((switchItem: any) => {
-                                  const switchType = switchItem.type || 'unknown';
-                                  acc[switchType] = (acc[switchType] || 0) + 1;
-                                });
-                              }
-                              return acc;
-                            }, {}) || {};
+                    {(() => {
+                      const switchTypeCounts = analyticsData?.devices?.reduce((acc: Record<string, number>, device: any) => {
+                        if (device.switches && Array.isArray(device.switches)) {
+                          device.switches.forEach((switchItem: any) => {
+                            const switchType = switchItem?.type || 'unknown';
+                            acc[switchType] = (acc[switchType] || 0) + 1;
+                          });
+                        }
+                        return acc;
+                      }, {} as Record<string, number>) || {};
 
-                            const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316'];
-                            return Object.entries(switchTypeCounts)
-                              .map(([type, count], index) => ({
-                                name: type.charAt(0).toUpperCase() + type.slice(1), // Capitalize first letter
-                                value: count as number,
-                                fill: colors[index % colors.length]
-                              }))
-                              .filter(item => item.value > 0);
-                          })()}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={40}
-                          outerRadius={80}
-                          paddingAngle={5}
-                          dataKey="value"
-                        >
-                          {(() => {
-                            const switchTypeCounts = analyticsData?.devices?.reduce((acc: any, device: any) => {
-                              if (device.switches && Array.isArray(device.switches)) {
-                                device.switches.forEach((switchItem: any) => {
-                                  const switchType = switchItem.type || 'unknown';
-                                  acc[switchType] = (acc[switchType] || 0) + 1;
-                                });
-                              }
-                              return acc;
-                            }, {}) || {};
+                      const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316'];
+                      const chartData = Object.entries(switchTypeCounts)
+                        .map(([type, count], index) => ({
+                          name: type.charAt(0).toUpperCase() + type.slice(1),
+                          value: count,
+                          fill: colors[index % colors.length]
+                        }))
+                        .filter(item => item.value > 0);
 
-                            const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316'];
-                            return Object.entries(switchTypeCounts)
-                              .filter(([, count]) => (count as number) > 0)
-                              .map(([,], index) => (
-                                <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
-                              ));
-                          })()}
-                        </Pie>
-                        <Tooltip formatter={(value) => [`${value} switches`, 'Count']} />
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
+                      if (chartData.length === 0) {
+                        return (
+                          <div className="flex items-center justify-center h-48 text-muted-foreground">
+                            <div className="text-center text-sm">
+                              <p>No device type data</p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <ResponsiveContainer width="100%" height={200}>
+                          <PieChart>
+                            <Pie
+                              data={chartData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={40}
+                              outerRadius={80}
+                              paddingAngle={5}
+                              dataKey="value"
+                            >
+                              {chartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.fill} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value) => [`${value} switches`, 'Count']} />
+                            <Legend />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      );
+                    })()}
                   </div>
 
                   <div>
                     <h4 className="text-sm font-medium mb-3">Status Distribution</h4>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <PieChart>
-                        <Pie
-                          data={(() => {
-                            const statusCounts = analyticsData?.devices?.reduce((acc: any, device: any) => {
-                              const status = device.status || 'unknown';
-                              acc[status] = (acc[status] || 0) + 1;
-                              return acc;
-                            }, {}) || {};
+                    {(() => {
+                      const statusCounts = analyticsData?.devices?.reduce((acc: Record<string, number>, device: any) => {
+                        const status = device?.status || 'unknown';
+                        acc[status] = (acc[status] || 0) + 1;
+                        return acc;
+                      }, {} as Record<string, number>) || {};
 
-                            const statusColors: any = {
-                              'online': '#10b981',
-                              'offline': '#ef4444',
-                              'maintenance': '#f59e0b',
-                              'unknown': '#6b7280'
-                            };
+                      const statusColors: Record<string, string> = {
+                        'online': '#10b981',
+                        'offline': '#ef4444',
+                        'maintenance': '#f59e0b',
+                        'unknown': '#6b7280'
+                      };
 
-                            return Object.entries(statusCounts)
-                              .map(([status, count]) => ({
-                                name: status.charAt(0).toUpperCase() + status.slice(1),
-                                value: count as number,
-                                fill: statusColors[status] || '#6b7280'
-                              }))
-                              .filter(item => item.value > 0);
-                          })()}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={40}
-                          outerRadius={80}
-                          paddingAngle={5}
-                          dataKey="value"
-                        >
-                          {(() => {
-                            const statusCounts = analyticsData?.devices?.reduce((acc: any, device: any) => {
-                              const status = device.status || 'unknown';
-                              acc[status] = (acc[status] || 0) + 1;
-                              return acc;
-                            }, {}) || {};
+                      const chartData = Object.entries(statusCounts)
+                        .map(([status, count]) => ({
+                          name: status.charAt(0).toUpperCase() + status.slice(1),
+                          value: count,
+                          fill: statusColors[status] || '#6b7280'
+                        }))
+                        .filter(item => item.value > 0);
 
-                            const statusColors: any = {
-                              'online': '#10b981',
-                              'offline': '#ef4444',
-                              'maintenance': '#f59e0b',
-                              'unknown': '#6b7280'
-                            };
+                      if (chartData.length === 0) {
+                        return (
+                          <div className="flex items-center justify-center h-48 text-muted-foreground">
+                            <div className="text-center text-sm">
+                              <p>No status data</p>
+                            </div>
+                          </div>
+                        );
+                      }
 
-                            return Object.entries(statusCounts)
-                              .filter(([, count]) => (count as number) > 0)
-                              .map(([status]) => (
-                                <Cell key={`cell-${status}`} fill={statusColors[status] || '#6b7280'} />
-                              ));
-                          })()}
-                        </Pie>
-                        <Tooltip formatter={(value) => [`${value} devices`, 'Count']} />
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
+                      return (
+                        <ResponsiveContainer width="100%" height={200}>
+                          <PieChart>
+                            <Pie
+                              data={chartData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={40}
+                              outerRadius={80}
+                              paddingAngle={5}
+                              dataKey="value"
+                            >
+                              {chartData.map((entry) => (
+                                <Cell key={`cell-${entry.name}`} fill={entry.fill} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value) => [`${value} devices`, 'Count']} />
+                            <Legend />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -1391,39 +1395,57 @@ const AnalyticsPanel: React.FC = () => {
               <CardDescription>Device status and uptime across different classrooms</CardDescription>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart
-                  data={analyticsData?.devices?.reduce((acc, device) => {
-                    const classroom = device.classroom || 'Unassigned';
-                    const existing = acc.find(item => item.classroom === classroom);
-                    if (existing) {
-                      existing.total++;
-                      if (device.status === 'online') existing.online++;
-                    } else {
-                      acc.push({
-                        classroom,
-                        total: 1,
-                        online: device.status === 'online' ? 1 : 0
-                      });
-                    }
-                    return acc;
-                  }, [] as any[]) || []}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="classroom" />
-                  <YAxis />
-                  <Tooltip
-                    formatter={(value: any, name: string) => [
-                      value,
-                      name === 'online' ? 'Online Devices' : 'Total Devices'
-                    ]}
-                  />
-                  <Legend />
-                  <Bar dataKey="total" fill="#e5e7eb" name="Total Devices" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="online" fill="#10b981" name="Online Devices" radius={[2, 2, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {(() => {
+                // Memoize classroom aggregation for performance
+                const classroomData = analyticsData?.devices?.reduce((acc, device) => {
+                  const classroom = device.classroom || 'Unassigned';
+                  const existing = acc.find(item => item.classroom === classroom);
+                  if (existing) {
+                    existing.total++;
+                    if (device.status === 'online') existing.online++;
+                  } else {
+                    acc.push({
+                      classroom,
+                      total: 1,
+                      online: device.status === 'online' ? 1 : 0
+                    });
+                  }
+                  return acc;
+                }, [] as Array<{ classroom: string; total: number; online: number }>) || [];
+
+                if (classroomData.length === 0) {
+                  return (
+                    <div className="flex items-center justify-center h-64 text-muted-foreground">
+                      <div className="text-center">
+                        <Monitor className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                        <p>No classroom data available</p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart
+                      data={classroomData}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="classroom" />
+                      <YAxis />
+                      <Tooltip
+                        formatter={(value: any, name: string) => [
+                          value,
+                          name === 'online' ? 'Online Devices' : 'Total Devices'
+                        ]}
+                      />
+                      <Legend />
+                      <Bar dataKey="total" fill="#e5e7eb" name="Total Devices" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="online" fill="#10b981" name="Online Devices" radius={[2, 2, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                );
+              })()}
             </CardContent>
           </Card>
 
@@ -1431,47 +1453,60 @@ const AnalyticsPanel: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle>Device Health Timeline</CardTitle>
-              <CardDescription>Device connectivity over the last 24 hours</CardDescription>
+              <CardDescription>Device connectivity status (real-time data not available - using estimates)</CardDescription>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={250}>
-                <LineChart data={[
-                  { time: '00:00', online: 12, total: 15 },
-                  { time: '04:00', online: 13, total: 15 },
-                  { time: '08:00', online: 14, total: 15 },
-                  { time: '12:00', online: 15, total: 15 },
-                  { time: '16:00', online: 14, total: 15 },
-                  { time: '20:00', online: 13, total: 15 },
-                  { time: '24:00', online: 12, total: 15 }
-                ]}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="time" />
-                  <YAxis />
-                  <Tooltip
-                    formatter={(value: any, name: string) => [
-                      `${value} devices`,
-                      name === 'online' ? 'Online' : 'Total'
-                    ]}
-                  />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="total"
-                    stroke="#6b7280"
-                    strokeWidth={2}
-                    name="Total Devices"
-                    dot={{ fill: '#6b7280', strokeWidth: 2, r: 3 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="online"
-                    stroke="#10b981"
-                    strokeWidth={3}
-                    name="Online Devices"
-                    dot={{ fill: '#10b981', strokeWidth: 2, r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              {analyticsData?.devices && analyticsData.devices.length > 0 ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={(() => {
+                    // Generate timeline based on current device status
+                    const onlineCount = analyticsData.devices.filter(d => d.status === 'online').length;
+                    const totalCount = analyticsData.devices.length;
+                    
+                    // Create 7 data points representing current status (since we don't have historical data)
+                    return Array.from({ length: 7 }, (_, i) => ({
+                      time: `${i * 4}:00`,
+                      online: onlineCount,
+                      total: totalCount,
+                    }));
+                  })()}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="time" />
+                    <YAxis />
+                    <Tooltip
+                      formatter={(value: any, name: string) => [
+                        `${value} devices`,
+                        name === 'online' ? 'Online' : 'Total'
+                      ]}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="total"
+                      stroke="#6b7280"
+                      strokeWidth={2}
+                      name="Total Devices"
+                      dot={{ fill: '#6b7280', strokeWidth: 2, r: 3 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="online"
+                      stroke="#10b981"
+                      strokeWidth={3}
+                      name="Online Devices"
+                      dot={{ fill: '#10b981', strokeWidth: 2, r: 4 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-64 text-muted-foreground">
+                  <div className="text-center">
+                    <Activity className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>No device timeline data available</p>
+                    <p className="text-xs mt-1">Devices need to be online to track connectivity history</p>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
