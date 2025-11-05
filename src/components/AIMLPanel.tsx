@@ -348,10 +348,12 @@ const AIMLPanel: React.FC = () => {
         return (
           <div className='space-y-6'>
             {/* Energy Usage Forecast */}
-            <Card>
+            <Card className="border-border/50 shadow-lg bg-gradient-to-br from-card/80 to-card/50 backdrop-blur-sm">
               <CardHeader>
                 <CardTitle className='flex items-center gap-2'>
-                  <TrendingUp className='w-5 h-5 text-blue-500' />
+                  <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500/20 to-blue-600/10">
+                    <TrendingUp className='w-5 h-5 text-blue-500' />
+                  </div>
                   Energy Usage Forecast
                 </CardTitle>
                 <CardDescription>
@@ -361,29 +363,103 @@ const AIMLPanel: React.FC = () => {
               <CardContent>
                 <div className='h-64 w-full'>
                   <ResponsiveContainer width='100%' height='100%'>
-                    <AreaChart data={forecastData.map((usage: number, index: number) => ({
-                      hour: generateTimeLabel(index, '24h'),
-                      usage: usage,
-                      cost: costData[index]?.cost || 0
-                    }))}>
-                      <CartesianGrid strokeDasharray='3 3' />
-                      <XAxis dataKey='hour' />
-                      <YAxis yAxisId='usage' orientation='left' />
-                      <YAxis yAxisId='cost' orientation='right' />
+                    <AreaChart 
+                      data={forecastData.map((usage: number, index: number) => ({
+                        hour: generateTimeLabel(index, '24h'),
+                        usage: usage,
+                        cost: costData[index]?.cost || 0
+                      }))}
+                      margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient id="forecastGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#1d4ed8" stopOpacity={0.1}/>
+                        </linearGradient>
+                        <filter id="forecastGlow">
+                          <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                          <feMerge>
+                            <feMergeNode in="coloredBlur"/>
+                            <feMergeNode in="SourceGraphic"/>
+                          </feMerge>
+                        </filter>
+                      </defs>
+                      <CartesianGrid 
+                        strokeDasharray='3 3' 
+                        stroke="hsl(var(--border))" 
+                        opacity={0.2}
+                        vertical={false}
+                      />
+                      <XAxis 
+                        dataKey='hour' 
+                        tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                        axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                        tickLine={false}
+                      />
+                      <YAxis 
+                        yAxisId='usage' 
+                        orientation='left'
+                        tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                        axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                        tickLine={false}
+                        label={{ 
+                          value: 'Power (W)', 
+                          angle: -90, 
+                          position: 'insideLeft',
+                          style: { fill: '#3b82f6', fontSize: 11, fontWeight: 600 }
+                        }}
+                      />
+                      <YAxis 
+                        yAxisId='cost' 
+                        orientation='right'
+                        tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                        axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                        tickLine={false}
+                        label={{ 
+                          value: 'Cost ($)', 
+                          angle: 90, 
+                          position: 'insideRight',
+                          style: { fill: '#10b981', fontSize: 11, fontWeight: 600 }
+                        }}
+                      />
                       <Tooltip
                         formatter={(value: any, name: string) => [
                           name === 'usage' ? `${typeof value === 'number' ? value.toFixed(0) : value}W` : `$${typeof value === 'number' ? value.toFixed(2) : value}`,
                           name === 'usage' ? 'Power Consumption' : 'Estimated Cost'
                         ]}
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '12px',
+                          boxShadow: '0 10px 40px -10px rgb(0 0 0 / 0.2)',
+                          backdropFilter: 'blur(10px)',
+                          padding: '12px',
+                          fontSize: '12px'
+                        }}
+                        labelStyle={{ 
+                          color: 'hsl(var(--foreground))', 
+                          fontWeight: 700,
+                          marginBottom: '6px'
+                        }}
+                        cursor={{ stroke: 'hsl(var(--border))', strokeWidth: 1, strokeDasharray: '5 5' }}
                       />
                       <Area
                         yAxisId='usage'
                         type='monotone'
                         dataKey='usage'
                         stroke='#3b82f6'
-                        fill='#3b82f6'
-                        fillOpacity={0.3}
+                        fill='url(#forecastGradient)'
+                        strokeWidth={3}
+                        dot={false}
+                        activeDot={{ 
+                          r: 5, 
+                          fill: '#3b82f6',
+                          stroke: 'hsl(var(--background))',
+                          strokeWidth: 2,
+                          filter: 'url(#forecastGlow)'
+                        }}
                         name='usage'
+                        animationDuration={1200}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -652,10 +728,12 @@ const AIMLPanel: React.FC = () => {
             </Card>
 
             {/* Health Trend */}
-            <Card>
+            <Card className="border-border/50 shadow-lg bg-gradient-to-br from-card/80 to-card/50 backdrop-blur-sm">
               <CardHeader>
                 <CardTitle className='flex items-center gap-2'>
-                  <TrendingUp className='w-5 h-5 text-green-500' />
+                  <div className="p-2 rounded-lg bg-gradient-to-br from-green-500/20 to-green-600/10">
+                    <TrendingUp className='w-5 h-5 text-green-500' />
+                  </div>
                   Health Trend Analysis
                 </CardTitle>
                 <CardDescription>
@@ -665,21 +743,88 @@ const AIMLPanel: React.FC = () => {
               <CardContent>
                 <div className='h-48 w-full'>
                   <ResponsiveContainer width='100%' height='100%'>
-                    <LineChart data={Array.from({ length: 30 }, (_, i) => ({
-                      day: `Day ${i + 1}`,
-                      health: Math.max(50, healthScore - (i * 0.5) + Math.random() * 10),
-                      efficiency: Math.max(0.5, 1.0 - (i * 0.01) + Math.random() * 0.1)
-                    })).reverse()}>
-                      <CartesianGrid strokeDasharray='3 3' />
-                      <XAxis dataKey='day' />
-                      <YAxis />
-                      <Tooltip formatter={(value: any) => [`${value}%`, 'Health Score']} />
+                    <LineChart 
+                      data={Array.from({ length: 30 }, (_, i) => ({
+                        day: `Day ${i + 1}`,
+                        health: Math.max(50, healthScore - (i * 0.5) + Math.random() * 10),
+                        efficiency: Math.max(0.5, 1.0 - (i * 0.01) + Math.random() * 0.1)
+                      })).reverse()}
+                      margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient id="healthGradient" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0%" stopColor="#10b981" stopOpacity={1}/>
+                          <stop offset="100%" stopColor="#059669" stopOpacity={1}/>
+                        </linearGradient>
+                        <filter id="healthGlow">
+                          <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                          <feMerge>
+                            <feMergeNode in="coloredBlur"/>
+                            <feMergeNode in="SourceGraphic"/>
+                          </feMerge>
+                        </filter>
+                      </defs>
+                      <CartesianGrid 
+                        strokeDasharray='3 3' 
+                        stroke="hsl(var(--border))" 
+                        opacity={0.2}
+                        vertical={false}
+                      />
+                      <XAxis 
+                        dataKey='day'
+                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                        axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                        tickLine={false}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis
+                        tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                        axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                        tickLine={false}
+                        label={{ 
+                          value: 'Health (%)', 
+                          angle: -90, 
+                          position: 'insideLeft',
+                          style: { fill: '#10b981', fontSize: 11, fontWeight: 600 }
+                        }}
+                      />
+                      <Tooltip 
+                        formatter={(value: any) => [`${value.toFixed(1)}%`, 'Health Score']}
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '12px',
+                          boxShadow: '0 10px 40px -10px rgb(0 0 0 / 0.2)',
+                          backdropFilter: 'blur(10px)',
+                          padding: '12px',
+                          fontSize: '12px'
+                        }}
+                        labelStyle={{ 
+                          color: 'hsl(var(--foreground))', 
+                          fontWeight: 700,
+                          marginBottom: '6px'
+                        }}
+                        cursor={{ stroke: 'hsl(var(--border))', strokeWidth: 1, strokeDasharray: '5 5' }}
+                      />
                       <Line
                         type='monotone'
                         dataKey='health'
-                        stroke='#10b981'
-                        strokeWidth={2}
-                        dot={{ fill: '#10b981', strokeWidth: 2, r: 3 }}
+                        stroke='url(#healthGradient)'
+                        strokeWidth={3}
+                        dot={{ 
+                          fill: '#10b981', 
+                          strokeWidth: 2, 
+                          r: 3,
+                          stroke: 'hsl(var(--background))'
+                        }}
+                        activeDot={{ 
+                          r: 6,
+                          fill: '#10b981',
+                          stroke: 'hsl(var(--background))',
+                          strokeWidth: 3,
+                          filter: 'url(#healthGlow)'
+                        }}
+                        animationDuration={1000}
                       />
                     </LineChart>
                   </ResponsiveContainer>

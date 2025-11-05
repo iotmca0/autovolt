@@ -60,31 +60,54 @@ interface ChartWidgetProps extends WidgetProps {
 }
 
 /**
- * Default colors
+ * Modern gradient colors with tech-visual appeal
  */
 const DEFAULT_COLORS = [
-  'hsl(var(--chart-1))',
-  'hsl(var(--chart-2))',
-  'hsl(var(--chart-3))',
-  'hsl(var(--chart-4))',
-  'hsl(var(--chart-5))',
+  '#3b82f6', // Blue
+  '#8b5cf6', // Purple
+  '#ec4899', // Pink
+  '#f59e0b', // Amber
+  '#10b981', // Green
+];
+
+const GRADIENT_COLORS = [
+  { start: '#3b82f6', end: '#1d4ed8' }, // Blue gradient
+  { start: '#8b5cf6', end: '#6d28d9' }, // Purple gradient
+  { start: '#ec4899', end: '#be185d' }, // Pink gradient
+  { start: '#f59e0b', end: '#d97706' }, // Amber gradient
+  { start: '#10b981', end: '#059669' }, // Green gradient
 ];
 
 /**
- * Custom tooltip
+ * Enhanced custom tooltip with modern styling
  */
 function CustomTooltip({ active, payload, label }: TooltipProps<number, string>) {
   if (!active || !payload || !payload.length) return null;
 
   return (
-    <Card className="p-2 shadow-lg">
-      <p className="text-sm font-medium mb-1">{label}</p>
-      {payload.map((entry, index) => (
-        <p key={index} className="text-xs" style={{ color: entry.color }}>
-          {entry.name}: {entry.value}
-        </p>
-      ))}
-    </Card>
+    <div className="bg-card/95 backdrop-blur-xl border border-border/50 rounded-xl shadow-2xl p-4 min-w-[200px]">
+      <p className="text-sm font-semibold mb-2 text-foreground border-b border-border/30 pb-2">
+        {label}
+      </p>
+      <div className="space-y-1.5">
+        {payload.map((entry, index) => (
+          <div key={index} className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <div 
+                className="w-3 h-3 rounded-full shadow-sm" 
+                style={{ backgroundColor: entry.color }}
+              />
+              <span className="text-xs font-medium text-muted-foreground">
+                {entry.name}:
+              </span>
+            </div>
+            <span className="text-sm font-bold" style={{ color: entry.color }}>
+              {typeof entry.value === 'number' ? entry.value.toFixed(2) : entry.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -135,28 +158,62 @@ export function ChartWidget({
       case 'line':
         return (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data}>
-              {showGrid && <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />}
+            <LineChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+              <defs>
+                {dataKeys.map((key, index) => (
+                  <linearGradient key={`gradient-${key}`} id={`lineGradient-${key}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={GRADIENT_COLORS[index % GRADIENT_COLORS.length].start} stopOpacity={0.8} />
+                    <stop offset="100%" stopColor={GRADIENT_COLORS[index % GRADIENT_COLORS.length].end} stopOpacity={0.3} />
+                  </linearGradient>
+                ))}
+              </defs>
+              {showGrid && (
+                <CartesianGrid 
+                  strokeDasharray="3 3" 
+                  stroke="hsl(var(--border))" 
+                  opacity={0.2}
+                  vertical={false}
+                />
+              )}
               <XAxis
                 dataKey="name"
-                tick={{ fontSize: 12 }}
-                className="text-muted-foreground"
+                tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                tickLine={false}
               />
               <YAxis
-                tick={{ fontSize: 12 }}
-                className="text-muted-foreground"
+                tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                tickLine={false}
               />
-              <Tooltip content={<CustomTooltip />} />
-              {showLegend && <Legend />}
+              <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'hsl(var(--border))', strokeWidth: 1, strokeDasharray: '5 5' }} />
+              {showLegend && (
+                <Legend 
+                  wrapperStyle={{ paddingTop: '10px', fontSize: '12px' }}
+                  iconType="circle"
+                />
+              )}
               {dataKeys.map((key, index) => (
                 <Line
                   key={key}
                   type="monotone"
                   dataKey={key}
-                  stroke={colors[index % colors.length]}
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 5 }}
+                  stroke={DEFAULT_COLORS[index % DEFAULT_COLORS.length]}
+                  strokeWidth={3}
+                  dot={{ 
+                    r: 4, 
+                    fill: DEFAULT_COLORS[index % DEFAULT_COLORS.length],
+                    strokeWidth: 2,
+                    stroke: 'hsl(var(--background))'
+                  }}
+                  activeDot={{ 
+                    r: 6,
+                    fill: DEFAULT_COLORS[index % DEFAULT_COLORS.length],
+                    stroke: 'hsl(var(--background))',
+                    strokeWidth: 3
+                  }}
+                  animationDuration={1000}
+                  animationBegin={index * 100}
                 />
               ))}
             </LineChart>
@@ -166,27 +223,51 @@ export function ChartWidget({
       case 'area':
         return (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data}>
-              {showGrid && <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />}
+            <AreaChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+              <defs>
+                {dataKeys.map((key, index) => (
+                  <linearGradient key={`gradient-${key}`} id={`areaGradient-${key}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={GRADIENT_COLORS[index % GRADIENT_COLORS.length].start} stopOpacity={0.8} />
+                    <stop offset="95%" stopColor={GRADIENT_COLORS[index % GRADIENT_COLORS.length].end} stopOpacity={0.1} />
+                  </linearGradient>
+                ))}
+              </defs>
+              {showGrid && (
+                <CartesianGrid 
+                  strokeDasharray="3 3" 
+                  stroke="hsl(var(--border))" 
+                  opacity={0.2}
+                  vertical={false}
+                />
+              )}
               <XAxis
                 dataKey="name"
-                tick={{ fontSize: 12 }}
-                className="text-muted-foreground"
+                tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                tickLine={false}
               />
               <YAxis
-                tick={{ fontSize: 12 }}
-                className="text-muted-foreground"
+                tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                tickLine={false}
               />
-              <Tooltip content={<CustomTooltip />} />
-              {showLegend && <Legend />}
+              <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'hsl(var(--border))', strokeWidth: 1, strokeDasharray: '5 5' }} />
+              {showLegend && (
+                <Legend 
+                  wrapperStyle={{ paddingTop: '10px', fontSize: '12px' }}
+                  iconType="circle"
+                />
+              )}
               {dataKeys.map((key, index) => (
                 <Area
                   key={key}
                   type="monotone"
                   dataKey={key}
-                  stroke={colors[index % colors.length]}
-                  fill={colors[index % colors.length]}
-                  fillOpacity={0.6}
+                  stroke={DEFAULT_COLORS[index % DEFAULT_COLORS.length]}
+                  strokeWidth={2.5}
+                  fill={`url(#areaGradient-${key})`}
+                  animationDuration={1200}
+                  animationBegin={index * 100}
                 />
               ))}
             </AreaChart>
@@ -196,25 +277,50 @@ export function ChartWidget({
       case 'bar':
         return (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data}>
-              {showGrid && <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />}
+            <BarChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+              <defs>
+                {dataKeys.map((key, index) => (
+                  <linearGradient key={`gradient-${key}`} id={`barGradient-${key}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={GRADIENT_COLORS[index % GRADIENT_COLORS.length].start} stopOpacity={0.9} />
+                    <stop offset="100%" stopColor={GRADIENT_COLORS[index % GRADIENT_COLORS.length].end} stopOpacity={0.7} />
+                  </linearGradient>
+                ))}
+              </defs>
+              {showGrid && (
+                <CartesianGrid 
+                  strokeDasharray="3 3" 
+                  stroke="hsl(var(--border))" 
+                  opacity={0.2}
+                  vertical={false}
+                />
+              )}
               <XAxis
                 dataKey="name"
-                tick={{ fontSize: 12 }}
-                className="text-muted-foreground"
+                tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                tickLine={false}
               />
               <YAxis
-                tick={{ fontSize: 12 }}
-                className="text-muted-foreground"
+                tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                tickLine={false}
               />
-              <Tooltip content={<CustomTooltip />} />
-              {showLegend && <Legend />}
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.1 }} />
+              {showLegend && (
+                <Legend 
+                  wrapperStyle={{ paddingTop: '10px', fontSize: '12px' }}
+                  iconType="square"
+                />
+              )}
               {dataKeys.map((key, index) => (
                 <Bar
                   key={key}
                   dataKey={key}
-                  fill={colors[index % colors.length]}
-                  radius={[4, 4, 0, 0]}
+                  fill={`url(#barGradient-${key})`}
+                  radius={[8, 8, 0, 0]}
+                  maxBarSize={60}
+                  animationDuration={800}
+                  animationBegin={index * 100}
                 />
               ))}
             </BarChart>
@@ -225,21 +331,43 @@ export function ChartWidget({
         return (
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
+              <defs>
+                {data.map((entry, index) => (
+                  <linearGradient key={`gradient-${index}`} id={`pieGradient-${index}`} x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor={GRADIENT_COLORS[index % GRADIENT_COLORS.length].start} stopOpacity={0.9} />
+                    <stop offset="100%" stopColor={GRADIENT_COLORS[index % GRADIENT_COLORS.length].end} stopOpacity={0.7} />
+                  </linearGradient>
+                ))}
+              </defs>
               <Pie
                 data={data}
                 dataKey={dataKeys[0]}
                 nameKey="name"
                 cx="50%"
                 cy="50%"
-                outerRadius={80}
-                label
+                outerRadius="80%"
+                innerRadius="50%"
+                paddingAngle={3}
+                animationDuration={1000}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                labelLine={{ stroke: 'hsl(var(--foreground))', strokeWidth: 1 }}
               >
                 {data.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
+                  <Cell 
+                    key={`cell-${index}`} 
+                    fill={`url(#pieGradient-${index})`}
+                    stroke="hsl(var(--background))"
+                    strokeWidth={2}
+                  />
                 ))}
               </Pie>
               <Tooltip content={<CustomTooltip />} />
-              {showLegend && <Legend />}
+              {showLegend && (
+                <Legend 
+                  wrapperStyle={{ fontSize: '12px' }}
+                  iconType="circle"
+                />
+              )}
             </PieChart>
           </ResponsiveContainer>
         );
@@ -250,22 +378,22 @@ export function ChartWidget({
   };
 
   return (
-    <Card className="h-full flex flex-col">
+    <Card className="h-full flex flex-col border-border/50 shadow-lg hover:shadow-xl transition-all duration-300 bg-card/50 backdrop-blur-sm">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
-          <div>
-            <CardTitle className="text-base">{title}</CardTitle>
+          <div className="flex-1">
+            <CardTitle className="text-base font-semibold text-foreground">{title}</CardTitle>
             {description && (
-              <CardDescription className="text-xs mt-1">{description}</CardDescription>
+              <CardDescription className="text-xs mt-1.5 text-muted-foreground">{description}</CardDescription>
             )}
           </div>
           <div className="flex items-center gap-2">
             {allowTypeChange && !isEditing && (
               <Select value={chartType} onValueChange={(v) => setChartType(v as ChartType)}>
-                <SelectTrigger className="h-8 w-24">
+                <SelectTrigger className="h-8 w-24 border-border/50 bg-background/50 hover:bg-background transition-colors">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="border-border/50">
                   <SelectItem value="line">Line</SelectItem>
                   <SelectItem value="area">Area</SelectItem>
                   <SelectItem value="bar">Bar</SelectItem>
@@ -277,7 +405,7 @@ export function ChartWidget({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8"
+                className="h-8 w-8 hover:bg-primary/10 hover:text-primary transition-colors"
                 onClick={handleExport}
                 title="Export data"
               >
@@ -287,7 +415,7 @@ export function ChartWidget({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="flex-1 pb-2">
+      <CardContent className="flex-1 pb-4">
         <div className="h-full min-h-[200px]">
           {renderChart()}
         </div>

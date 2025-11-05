@@ -1234,23 +1234,57 @@ export const SystemHealthMonitoring: React.FC = () => {
             </Button>
           </div>
 
-          <Card>
+          <Card className="border-border/50 shadow-lg bg-gradient-to-br from-card/80 to-card/50 backdrop-blur-sm">
             <CardHeader>
-              <CardTitle>Historical Data - {selectedMetric.toUpperCase()}</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10">
+                  <BarChart3 className="w-5 h-5 text-primary" />
+                </div>
+                Historical Data - {selectedMetric.toUpperCase()}
+              </CardTitle>
               <CardDescription>{historicalData?.period || '24 hours'} trend with real-time data</CardDescription>
             </CardHeader>
             <CardContent>
               {historicalData?.data && historicalData.data.length > 0 ? (
                 <ResponsiveContainer width="100%" height={400}>
-                  <AreaChart data={historicalData.data}>
-                    <CartesianGrid strokeDasharray="3 3" />
+                  <AreaChart data={historicalData.data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="historicalGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor="#1d4ed8" stopOpacity={0.1}/>
+                      </linearGradient>
+                      <filter id="glow">
+                        <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                        <feMerge>
+                          <feMergeNode in="coloredBlur"/>
+                          <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                      </filter>
+                    </defs>
+                    <CartesianGrid 
+                      strokeDasharray="3 3" 
+                      stroke="hsl(var(--border))" 
+                      opacity={0.2}
+                      vertical={false}
+                    />
                     <XAxis
                       dataKey="timestamp"
                       tickFormatter={(value) => format(new Date(value), 'HH:mm')}
                       interval="preserveStartEnd"
+                      tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                      axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                      tickLine={false}
                     />
                     <YAxis
-                      label={{ value: selectedMetric.includes('network') ? 'Bytes/s' : 'Percentage (%)', angle: -90, position: 'insideLeft' }}
+                      label={{ 
+                        value: selectedMetric.includes('network') ? 'Bytes/s' : 'Percentage (%)', 
+                        angle: -90, 
+                        position: 'insideLeft',
+                        style: { fill: '#3b82f6', fontSize: 12, fontWeight: 600 }
+                      }}
+                      tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                      axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                      tickLine={false}
                     />
                     <Tooltip
                       labelFormatter={(value) => format(new Date(value), 'MMM dd, HH:mm:ss')}
@@ -1259,19 +1293,36 @@ export const SystemHealthMonitoring: React.FC = () => {
                         selectedMetric.toUpperCase().replace('_', ' ')
                       ]}
                       contentStyle={{
-                        backgroundColor: 'white',
-                        border: '1px solid #ccc',
-                        borderRadius: '8px',
+                        backgroundColor: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '12px',
+                        boxShadow: '0 10px 40px -10px rgb(0 0 0 / 0.2)',
+                        backdropFilter: 'blur(10px)',
+                        padding: '12px',
                         fontSize: '12px'
                       }}
+                      labelStyle={{ 
+                        color: 'hsl(var(--foreground))', 
+                        fontWeight: 700,
+                        marginBottom: '6px'
+                      }}
+                      cursor={{ stroke: 'hsl(var(--border))', strokeWidth: 1, strokeDasharray: '5 5' }}
                     />
                     <Area
                       type="monotone"
                       dataKey="value"
                       stroke="#3b82f6"
-                      fill="#3b82f6"
-                      fillOpacity={0.3}
-                      strokeWidth={2}
+                      fill="url(#historicalGradient)"
+                      strokeWidth={3}
+                      dot={false}
+                      activeDot={{ 
+                        r: 6, 
+                        fill: '#3b82f6',
+                        stroke: 'hsl(var(--background))',
+                        strokeWidth: 3,
+                        filter: 'url(#glow)'
+                      }}
+                      animationDuration={1200}
                     />
                   </AreaChart>
                 </ResponsiveContainer>

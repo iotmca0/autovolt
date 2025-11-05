@@ -14,7 +14,7 @@ import { useDevices } from '@/hooks/useDevices';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { apiService } from '@/services/api';
 import { DeviceStats } from '@/types';
 
@@ -64,6 +64,13 @@ const Index = () => {
     totalConsumption: 0,
     totalCost: 0
   });
+  
+  // Monthly chart data (last 6 months)
+  const [monthlyChartData, setMonthlyChartData] = useState<Array<{
+    month: string;
+    consumption: number;
+    cost: number;
+  }>>([]);
 
   useEffect(() => {
     let t: any;
@@ -133,10 +140,32 @@ const Index = () => {
             });
           }
         }
+        
+        // Fetch monthly chart data (last 6 months) - use real data from analytics
+        try {
+          const monthlyChartResponse = await apiService.get('/analytics/energy/monthly-chart');
+          if (monthlyChartResponse.data && Array.isArray(monthlyChartResponse.data)) {
+            // Filter out months with zero data only if all months are zero
+            const hasAnyData = monthlyChartResponse.data.some(month => month.consumption > 0 || month.cost > 0);
+            if (hasAnyData) {
+              setMonthlyChartData(monthlyChartResponse.data);
+            } else {
+              // No real data available yet, show empty state
+              setMonthlyChartData([]);
+            }
+          } else {
+            setMonthlyChartData([]);
+          }
+        } catch (chartError) {
+          console.error('Error fetching monthly chart data:', chartError);
+          // Show empty state if API fails
+          setMonthlyChartData([]);
+        }
       } catch (error) {
         console.error('Error fetching energy summary:', error);
         setDailyTotals({ totalConsumption: 0, totalCost: 0 });
         setMonthlyTotals({ totalConsumption: 0, totalCost: 0 });
+        setMonthlyChartData([]);
       } finally {
         setLoadingPowerData(false);
       }
@@ -564,10 +593,10 @@ const Index = () => {
                   <Zap className="h-5 w-5 text-blue-600 flex-shrink-0" />
                   <span className="text-sm font-semibold text-blue-900 dark:text-blue-100">Today's Usage</span>
                 </div>
-                <div className="text-3xl font-bold text-blue-600 mb-1">
+                <div className="text-2xl sm:text-3xl font-bold text-blue-600 mb-1 break-words text-center">
                   {dailyTotals.totalConsumption.toFixed(3)} kWh
                 </div>
-                <div className="text-sm text-blue-700 dark:text-blue-300">
+                <div className="text-sm text-blue-700 dark:text-blue-300 break-words text-center">
                   Cost: ₹{dailyTotals.totalCost.toFixed(2)}
                 </div>
               </div>
@@ -578,10 +607,10 @@ const Index = () => {
                   <TrendingUp className="h-5 w-5 text-orange-600 flex-shrink-0" />
                   <span className="text-sm font-semibold text-orange-900 dark:text-orange-100">This Month</span>
                 </div>
-                <div className="text-3xl font-bold text-orange-600 mb-1">
+                <div className="text-2xl sm:text-3xl font-bold text-orange-600 mb-1 break-words text-center">
                   {monthlyTotals.totalConsumption.toFixed(3)} kWh
                 </div>
-                <div className="text-sm text-orange-700 dark:text-orange-300">
+                <div className="text-sm text-orange-700 dark:text-orange-300 break-words text-center">
                   Cost: ₹{monthlyTotals.totalCost.toFixed(2)}
                 </div>
               </div>
@@ -592,12 +621,213 @@ const Index = () => {
                   <Activity className="h-5 w-5 text-green-600 flex-shrink-0" />
                   <span className="text-sm font-semibold text-green-900 dark:text-green-100">Bill This Month</span>
                 </div>
-                <div className="text-3xl font-bold text-green-600 mb-1">
+                <div className="text-2xl sm:text-3xl font-bold text-green-600 mb-1 break-words text-center">
                   ₹{monthlyTotals.totalCost.toFixed(2)}
                 </div>
-                <div className="text-xs text-green-700 dark:text-green-300 text-center">
+                <div className="text-xs text-green-700 dark:text-green-300 text-center break-words">
                   Rate: ₹7.00/kWh<br/>
                   {(monthlyTotals.totalCost / new Date().getDate()).toFixed(2)} ₹/day avg
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Monthly Power Consumption & Cost Chart */}
+      <Card className="border-border/50 shadow-xl bg-gradient-to-br from-card/80 to-card/50 backdrop-blur-sm">
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <CardTitle className="text-lg md:text-xl flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10">
+                  <TrendingUp className="h-5 w-5 text-primary" />
+                </div>
+                Monthly Power Consumption & Cost
+              </CardTitle>
+              <CardDescription className="text-xs md:text-sm mt-2">
+                Last 6 months energy usage and electricity bill trends
+              </CardDescription>
+            </div>
+            <Badge variant="outline" className="text-xs self-start md:self-auto whitespace-nowrap border-primary/30 bg-primary/5">
+              6 Month Trend
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loadingPowerData ? (
+            <div className="flex flex-col items-center justify-center h-80 gap-3">
+              <Activity className="w-12 h-12 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Loading energy analytics...</p>
+            </div>
+          ) : monthlyChartData.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <div className="mb-4 flex justify-center">
+                <div className="p-4 rounded-full bg-muted/30">
+                  <TrendingUp className="w-12 h-12 opacity-30" />
+                </div>
+              </div>
+              <p className="text-lg font-medium mb-1">No monthly data available</p>
+              <p className="text-sm">Energy tracking data will appear here</p>
+            </div>
+          ) : (
+            <div className="w-full">
+              <ResponsiveContainer width="100%" height={400}>
+                <BarChart
+                  data={monthlyChartData}
+                  margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
+                >
+                  <defs>
+                    <linearGradient id="consumptionGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#3b82f6" stopOpacity={1} />
+                      <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.8} />
+                    </linearGradient>
+                    <linearGradient id="costGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#f59e0b" stopOpacity={1} />
+                      <stop offset="100%" stopColor="#d97706" stopOpacity={0.8} />
+                    </linearGradient>
+                    <filter id="shadow">
+                      <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.3"/>
+                    </filter>
+                  </defs>
+                  <CartesianGrid 
+                    strokeDasharray="3 3" 
+                    stroke="hsl(var(--border))" 
+                    opacity={0.2}
+                    vertical={false}
+                  />
+                  <XAxis 
+                    dataKey="month" 
+                    stroke="hsl(var(--foreground))"
+                    fontSize={11}
+                    angle={-45}
+                    textAnchor="end"
+                    height={80}
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                    tickLine={false}
+                  />
+                  <YAxis 
+                    yAxisId="left"
+                    stroke="hsl(var(--foreground))"
+                    fontSize={11}
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                    tickLine={false}
+                    label={{ 
+                      value: 'Consumption (kWh)', 
+                      angle: -90, 
+                      position: 'insideLeft',
+                      style: { fill: '#3b82f6', fontSize: 12, fontWeight: 600 }
+                    }}
+                  />
+                  <YAxis 
+                    yAxisId="right"
+                    orientation="right"
+                    stroke="hsl(var(--foreground))"
+                    fontSize={11}
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    axisLine={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
+                    tickLine={false}
+                    label={{ 
+                      value: 'Cost (₹)', 
+                      angle: 90, 
+                      position: 'insideRight',
+                      style: { fill: '#f59e0b', fontSize: 12, fontWeight: 600 }
+                    }}
+                  />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '12px',
+                      boxShadow: '0 10px 40px -10px rgb(0 0 0 / 0.2)',
+                      backdropFilter: 'blur(10px)',
+                      padding: '12px'
+                    }}
+                    labelStyle={{ 
+                      color: 'hsl(var(--foreground))', 
+                      fontWeight: 700,
+                      fontSize: '13px',
+                      marginBottom: '8px',
+                      borderBottom: '1px solid hsl(var(--border))',
+                      paddingBottom: '6px'
+                    }}
+                    itemStyle={{ 
+                      color: 'hsl(var(--muted-foreground))',
+                      fontSize: '12px',
+                      padding: '4px 0'
+                    }}
+                    formatter={(value: any, name: string) => {
+                      if (name === 'consumption') {
+                        return [`${Number(value).toFixed(2)} kWh`, 'Power Consumption'];
+                      }
+                      if (name === 'cost') {
+                        return [`₹${Number(value).toFixed(2)}`, 'Electricity Cost'];
+                      }
+                      return [value, name];
+                    }}
+                    cursor={{ fill: 'hsl(var(--muted))', opacity: 0.1 }}
+                  />
+                  <Legend 
+                    wrapperStyle={{ 
+                      paddingTop: '25px',
+                      fontSize: '12px'
+                    }}
+                    iconType="circle"
+                    formatter={(value) => {
+                      if (value === 'consumption') return 'Power Consumption (kWh)';
+                      if (value === 'cost') return 'Electricity Cost (₹)';
+                      return value;
+                    }}
+                  />
+                  <Bar 
+                    yAxisId="left"
+                    dataKey="consumption" 
+                    fill="url(#consumptionGradient)"
+                    radius={[10, 10, 0, 0]}
+                    maxBarSize={50}
+                    animationDuration={1000}
+                    filter="url(#shadow)"
+                  />
+                  <Bar 
+                    yAxisId="right"
+                    dataKey="cost" 
+                    fill="url(#costGradient)"
+                    radius={[10, 10, 0, 0]}
+                    maxBarSize={50}
+                    animationDuration={1000}
+                    animationBegin={200}
+                    filter="url(#shadow)"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+              
+              {/* Chart Legend Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-gradient-to-r from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border border-blue-200/50">
+                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg">
+                    <Zap className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Power Consumption</p>
+                    <p className="text-lg font-bold text-blue-700 dark:text-blue-300">
+                      {monthlyChartData.reduce((sum, item) => sum + item.consumption, 0).toFixed(2)} kWh
+                    </p>
+                    <p className="text-xs text-blue-600/70 dark:text-blue-400/70">Total 6 months</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-gradient-to-r from-amber-50 to-amber-100/50 dark:from-amber-950/30 dark:to-amber-900/20 border border-amber-200/50">
+                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-lg">
+                    <TrendingUp className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Electricity Cost</p>
+                    <p className="text-lg font-bold text-amber-700 dark:text-amber-300">
+                      ₹{monthlyChartData.reduce((sum, item) => sum + item.cost, 0).toFixed(2)}
+                    </p>
+                    <p className="text-xs text-amber-600/70 dark:text-amber-400/70">Total 6 months</p>
+                  </div>
                 </div>
               </div>
             </div>

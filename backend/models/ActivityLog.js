@@ -16,6 +16,7 @@ const activityLogSchema = new mongoose.Schema({
       'on', 'off', 'toggle', 
       'manual_on', 'manual_off', 'manual_toggle',
       'device_created', 'device_updated', 'device_deleted', 
+      'device_online', 'device_offline', 'device_connected', 'device_disconnected',
       'bulk_on', 'bulk_off',
       'status_check', 'heartbeat',
       'conflict_resolved'

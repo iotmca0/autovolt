@@ -55,6 +55,162 @@ router.get('/energy-summary', async (req, res) => {
   }
 });
 
+// Get monthly energy consumption chart data (last 6 months)
+router.get('/energy/monthly-chart', async (req, res) => {
+  try {
+    const Device = require('../models/Device');
+    const ActivityLog = require('../models/ActivityLog');
+    const PowerSettings = require('../models/PowerSettings');
+    
+    console.log('[Monthly Chart] Starting monthly chart data calculation...');
+    
+    // Get electricity rate
+    let electricityRate = 7.0; // Default ₹7 per kWh
+    let devicePowerRatings = {
+      light: 40,
+      fan: 75,
+      projector: 200,
+      ac: 1500,
+      outlet: 100,
+      relay: 50
+    };
+    
+    try {
+      const settings = await PowerSettings.findOne();
+      if (settings) {
+        if (settings.electricityPrice) {
+          electricityRate = settings.electricityPrice;
+        }
+        if (settings.devicePowerRatings) {
+          devicePowerRatings = { ...devicePowerRatings, ...settings.devicePowerRatings };
+        }
+      }
+    } catch (err) {
+      console.log('[Monthly Chart] Using default electricity rate and power settings');
+    }
+    
+    console.log('[Monthly Chart] Using electricity rate:', electricityRate, '₹/kWh');
+    
+    const monthlyData = [];
+    const now = new Date();
+    
+    // Generate data for last 6 months
+    for (let i = 5; i >= 0; i--) {
+      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const year = targetDate.getFullYear();
+      const month = targetDate.getMonth();
+      
+      // Calculate start and end of month
+      const startOfMonth = new Date(year, month, 1);
+      const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59, 999);
+      
+      // Get month name
+      const monthName = targetDate.toLocaleString('default', { month: 'short', year: 'numeric' });
+      
+      console.log(`[Monthly Chart] Processing ${monthName} (${startOfMonth.toISOString()} to ${endOfMonth.toISOString()})`);
+      
+      try {
+        let totalConsumption = 0;
+        
+        // Get all devices
+        const devices = await Device.find({}).lean();
+        console.log(`[Monthly Chart] Found ${devices.length} devices for ${monthName}`);
+        
+        // Calculate consumption for each device using ActivityLog
+        for (const device of devices) {
+          for (const sw of device.switches || []) {
+            // Get all ON logs for this switch in this month
+            const onLogs = await ActivityLog.find({
+              deviceId: device._id,
+              switchId: sw.id,
+              action: 'on',
+              timestamp: { $gte: startOfMonth, $lte: endOfMonth }
+            }).sort({ timestamp: 1 }).lean();
+            
+            if (onLogs.length > 0) {
+              console.log(`[Monthly Chart] Device ${device.name}, Switch ${sw.name}: Found ${onLogs.length} ON events in ${monthName}`);
+            }
+            
+            // Calculate total ON duration
+            for (const onLog of onLogs) {
+              const onTime = new Date(onLog.timestamp);
+              
+              // Find the next OFF log after this ON
+              const offLog = await ActivityLog.findOne({
+                deviceId: device._id,
+                switchId: sw.id,
+                action: 'off',
+                timestamp: { $gt: onTime, $lte: endOfMonth }
+              }).sort({ timestamp: 1 }).lean();
+              
+              let offTime;
+              if (offLog) {
+                offTime = new Date(offLog.timestamp);
+              } else {
+                // If still on at end of month, use end of month
+                // or current time if it's the current month
+                if (month === now.getMonth() && year === now.getFullYear()) {
+                  // Check if switch is currently on
+                  const currentDevice = await Device.findById(device._id);
+                  const currentSwitch = currentDevice?.switches.find(s => s.id === sw.id);
+                  if (currentSwitch && currentSwitch.state) {
+                    offTime = now;
+                  } else {
+                    continue; // Skip if we can't find matching OFF
+                  }
+                } else {
+                  offTime = endOfMonth;
+                }
+              }
+              
+              // Calculate duration in hours
+              const durationMs = offTime.getTime() - onTime.getTime();
+              const durationHours = durationMs / (1000 * 60 * 60);
+              
+              // Get power rating for this switch type
+              const powerRating = devicePowerRatings[sw.type] || devicePowerRatings.relay || 50;
+              
+              // Calculate consumption in kWh
+              const consumption = (durationHours * powerRating) / 1000;
+              totalConsumption += consumption;
+              
+              if (consumption > 0) {
+                console.log(`[Monthly Chart] ${device.name} - ${sw.name}: ${durationHours.toFixed(2)}h × ${powerRating}W = ${consumption.toFixed(4)} kWh`);
+              }
+            }
+          }
+        }
+        
+        // Calculate cost
+        const totalCost = totalConsumption * electricityRate;
+        
+        console.log(`[Monthly Chart] ${monthName} Total: ${totalConsumption.toFixed(2)} kWh, ₹${totalCost.toFixed(2)}`);
+        
+        monthlyData.push({
+          month: monthName,
+          consumption: Number(totalConsumption.toFixed(2)),
+          cost: Number(totalCost.toFixed(2))
+        });
+        
+      } catch (err) {
+        console.error(`[Monthly Chart] Error calculating month ${monthName}:`, err);
+        // Add zero data for this month
+        monthlyData.push({
+          month: monthName,
+          consumption: 0,
+          cost: 0
+        });
+      }
+    }
+    
+    console.log('[Monthly Chart] Final data:', JSON.stringify(monthlyData, null, 2));
+    res.json(monthlyData);
+  } catch (error) {
+    console.error('[Monthly Chart] Error:', error);
+    res.status(500).json({ error: 'Failed to get monthly chart data' });
+  }
+});
+
 // Get energy calendar view data (daily breakdown for a specific month)
 router.get('/energy-calendar/:year/:month', 
   param('year').isInt({ min: 2020, max: 2100 }).withMessage('Invalid year'),
@@ -356,51 +512,125 @@ router.get('/device-uptime', async (req, res) => {
       let lastOnlineAt = device.status === 'online' && device.lastSeen ? device.lastSeen : null;
       let lastOfflineAt = device.status === 'offline' && device.lastSeen ? device.lastSeen : null;
       
-      // If no logs exist, calculate based on current status and lastSeen
-      if (statusLogs.length === 0) {
+      // ALWAYS calculate based on MOST RECENT status change (ignore daily boundaries)
+      // This ensures continuous uptime/downtime tracking across multiple days
+      if (true) { // Force this path for all devices
         const now = new Date();
-        const currentTime = now > endOfDay ? endOfDay : now;
+        const currentTime = now; // Use actual current time, not limited by endOfDay
         
-        if (device.lastSeen) {
-          const lastSeenDate = new Date(device.lastSeen);
+        // Find the MOST RECENT status change event (from any time) to determine when status actually changed
+        const lastStatusChangeLog = await ActivityLog.findOne({
+          deviceId: device._id,
+          action: { $in: ['device_online', 'device_connected', 'device_offline', 'device_disconnected'] },
+          timestamp: { $lte: currentTime } // Look for any status change up to now
+        })
+        .sort({ timestamp: -1 })
+        .limit(1);
+        
+        if (lastStatusChangeLog) {
+          // Use the timestamp when status actually changed (not lastSeen heartbeat)
+          const statusChangeDate = new Date(lastStatusChangeLog.timestamp);
+          const isOnlineAction = lastStatusChangeLog.action === 'device_online' || lastStatusChangeLog.action === 'device_connected';
           
-          if (device.status === 'online') {
-            // Device is currently online
-            if (lastSeenDate < startOfDay) {
-              // Device has been online since before this day started
-              onlineDuration = (currentTime - startOfDay) / 1000;
-              lastOnlineAt = startOfDay.toISOString();
-            } else if (lastSeenDate >= startOfDay && lastSeenDate <= currentTime) {
-              // Device came online during this day
-              offlineDuration = (lastSeenDate - startOfDay) / 1000;
-              onlineDuration = (currentTime - lastSeenDate) / 1000;
-              lastOnlineAt = device.lastSeen;
+          // Verify that the log action matches current device status
+          if ((device.status === 'online' && isOnlineAction) || (device.status === 'offline' && !isOnlineAction)) {
+            // Status matches - use this as the authoritative timestamp
+            // CALCULATE TOTAL CONTINUOUS UPTIME/DOWNTIME FROM ACTUAL STATUS CHANGE TIME
+            
+            if (device.status === 'online') {
+              // Device came online at statusChangeDate - calculate TOTAL time online
+              onlineDuration = (currentTime - statusChangeDate) / 1000;
+              lastOnlineAt = lastStatusChangeLog.timestamp;
+              
+              // Don't calculate offlineDuration - device is currently ONLINE
+              // onlineDuration already contains the total time online from statusChangeDate
+            } else {
+              // Device went offline at statusChangeDate - calculate TOTAL time offline
+              offlineDuration = (currentTime - statusChangeDate) / 1000;
+              lastOfflineAt = lastStatusChangeLog.timestamp;
+              
+              // Don't calculate onlineDuration - device is currently OFFLINE
+              // offlineDuration already contains the total time offline from statusChangeDate
             }
           } else {
-            // Device is currently offline
-            if (lastSeenDate < startOfDay) {
-              // Device has been offline since before this day started
-              offlineDuration = (currentTime - startOfDay) / 1000;
-              lastOfflineAt = startOfDay.toISOString();
-            } else if (lastSeenDate >= startOfDay && lastSeenDate <= currentTime) {
-              // Device went offline during this day
-              onlineDuration = (lastSeenDate - startOfDay) / 1000;
-              offlineDuration = (currentTime - lastSeenDate) / 1000;
-              lastOfflineAt = device.lastSeen;
+            // Status mismatch - the log doesn't match current status
+            // This means there might be a status change we don't have logged yet
+            // Fall back to device.lastSeen cautiously
+            if (device.lastSeen) {
+              const lastSeenDate = new Date(device.lastSeen);
+              
+              if (device.status === 'online') {
+                if (lastSeenDate < startOfDay) {
+                  onlineDuration = (currentTime - startOfDay) / 1000;
+                  lastOnlineAt = startOfDay.toISOString();
+                } else if (lastSeenDate >= startOfDay && lastSeenDate <= currentTime) {
+                  offlineDuration = (lastSeenDate - startOfDay) / 1000;
+                  onlineDuration = (currentTime - lastSeenDate) / 1000;
+                  lastOnlineAt = device.lastSeen;
+                }
+              } else {
+                if (lastSeenDate < startOfDay) {
+                  offlineDuration = (currentTime - startOfDay) / 1000;
+                  lastOfflineAt = startOfDay.toISOString();
+                } else if (lastSeenDate >= startOfDay && lastSeenDate <= currentTime) {
+                  onlineDuration = (lastSeenDate - startOfDay) / 1000;
+                  offlineDuration = (currentTime - lastSeenDate) / 1000;
+                  lastOfflineAt = device.lastSeen;
+                }
+              }
+            } else {
+              // Absolute fallback
+              const totalDuration = (currentTime - startOfDay) / 1000;
+              if (device.status === 'online') {
+                onlineDuration = totalDuration;
+                lastOnlineAt = startOfDay.toISOString();
+              } else {
+                offlineDuration = totalDuration;
+                lastOfflineAt = startOfDay.toISOString();
+              }
             }
           }
         } else {
-          // No lastSeen timestamp, assume current status for entire day
-          const now = new Date();
-          const currentTime = now > endOfDay ? endOfDay : now;
-          const totalDuration = (currentTime - startOfDay) / 1000;
-          
-          if (device.status === 'online') {
-            onlineDuration = totalDuration;
-            lastOnlineAt = startOfDay.toISOString();
+          // No status change logs found at all - use device.lastSeen as fallback
+          if (device.lastSeen) {
+            const lastSeenDate = new Date(device.lastSeen);
+            
+            if (device.status === 'online') {
+              // Device is currently online
+              if (lastSeenDate < startOfDay) {
+                // Device has been online since before this day started
+                onlineDuration = (currentTime - startOfDay) / 1000;
+                lastOnlineAt = startOfDay.toISOString();
+              } else if (lastSeenDate >= startOfDay && lastSeenDate <= currentTime) {
+                // Device came online during this day
+                offlineDuration = (lastSeenDate - startOfDay) / 1000;
+                onlineDuration = (currentTime - lastSeenDate) / 1000;
+                lastOnlineAt = device.lastSeen;
+              }
+            } else {
+              // Device is currently offline
+              if (lastSeenDate < startOfDay) {
+                // Device has been offline since before this day started
+                offlineDuration = (currentTime - startOfDay) / 1000;
+                lastOfflineAt = startOfDay.toISOString();
+              } else if (lastSeenDate >= startOfDay && lastSeenDate <= currentTime) {
+                // Device went offline during this day
+                onlineDuration = (lastSeenDate - startOfDay) / 1000;
+                offlineDuration = (currentTime - lastSeenDate) / 1000;
+                lastOfflineAt = device.lastSeen;
+              }
+            }
           } else {
-            offlineDuration = totalDuration;
-            lastOfflineAt = startOfDay.toISOString();
+            // No lastSeen timestamp, assume current status for entire day
+            const totalDuration = (currentTime - startOfDay) / 1000;
+            
+            if (device.status === 'online') {
+              onlineDuration = totalDuration;
+              lastOnlineAt = startOfDay.toISOString();
+            } else {
+              offlineDuration = totalDuration;
+              lastOfflineAt = startOfDay.toISOString();
+            }
           }
         }
       } else {
@@ -506,8 +736,8 @@ router.get('/switch-stats', async (req, res) => {
         // Get all switch toggle logs for this switch on this date
         const switchLogs = await ActivityLog.find({
           deviceId: device._id,
-          action: { $in: ['switch_on', 'switch_off'] },
-          'details.switchId': switchItem.id,
+          action: { $in: ['on', 'off'] }, // Actions are 'on'/'off', not 'switch_on'/'switch_off'
+          switchId: switchItem._id, // Switch logs use switchId field, not details.switchId
           timestamp: { $gte: startOfDay, $lte: endOfDay }
         }).sort({ timestamp: 1 }).lean();
         
@@ -515,24 +745,79 @@ router.get('/switch-stats', async (req, res) => {
         let offDuration = 0;
         let toggleCount = switchLogs.length;
         let lastState = switchItem.state ? 'on' : 'off';
+        let currentState = switchItem.state ? 'on' : 'off'; // Current state
         let lastTimestamp = startOfDay;
         let lastOnAt = null;
         let lastOffAt = null;
+        let lastStateChangeAt = null; // When did current state start
         
-        // If no logs exist, calculate based on current switch state
+        // ALWAYS find the most recent switch log (from any time, not just today)
+        // This ensures we have accurate "when did current state start" information
+        const mostRecentLog = await ActivityLog.findOne({
+          deviceId: device._id,
+          action: { $in: ['on', 'off'] }, // Actions are 'on'/'off', not 'switch_on'/'switch_off'
+          switchId: switchItem._id // Switch logs use switchId field, not details.switchId
+        }).sort({ timestamp: -1 }).limit(1).lean();
+        
+        // If no logs exist FOR TODAY, calculate based on current switch state
         if (switchLogs.length === 0) {
           const now = new Date();
-          const currentTime = now > endOfDay ? endOfDay : now;
-          const totalDuration = (currentTime - startOfDay) / 1000;
+          const currentTime = now; // Use actual current time for continuous tracking
+          
+          // Determine when current state started
+          let stateStartTime = startOfDay;
+          
+          if (mostRecentLog) {
+            const mostRecentLogDate = new Date(mostRecentLog.timestamp);
+            const mostRecentLogAction = mostRecentLog.action;
+            
+            // Check if most recent log matches current state
+            const logStateIsOn = mostRecentLogAction === 'on'; // Action is 'on', not 'switch_on'
+            const currentStateIsOn = switchItem.state;
+            
+            if (logStateIsOn === currentStateIsOn) {
+              // Most recent log matches current state - use it as start time
+              stateStartTime = mostRecentLogDate;
+              
+              if (currentStateIsOn) {
+                lastOnAt = mostRecentLog.timestamp;
+              } else {
+                lastOffAt = mostRecentLog.timestamp;
+              }
+            } else {
+              // State changed since last log, but no log recorded
+              // This shouldn't happen, but fall back to startOfDay
+              stateStartTime = startOfDay;
+            }
+          }
+          
+          // Calculate duration from when state actually started
+          const stateDuration = (currentTime - stateStartTime) / 1000;
           
           if (switchItem.state) {
             // Switch is currently ON
-            onDuration = totalDuration;
-            lastOnAt = switchItem.lastStateChange || startOfDay.toISOString();
+            onDuration = stateDuration;
+            if (!lastOnAt) lastOnAt = stateStartTime.toISOString();
+            lastStateChangeAt = stateStartTime.toISOString();
+            
+            // If state started before today, add offline time from midnight to start of day
+            if (stateStartTime < startOfDay) {
+              // Was already ON at midnight, so today's ON time is from midnight to now
+              onDuration = (currentTime - startOfDay) / 1000;
+              lastStateChangeAt = startOfDay.toISOString(); // Show as "since midnight"
+            }
           } else {
             // Switch is currently OFF
-            offDuration = totalDuration;
-            lastOffAt = switchItem.lastStateChange || startOfDay.toISOString();
+            offDuration = stateDuration;
+            if (!lastOffAt) lastOffAt = stateStartTime.toISOString();
+            lastStateChangeAt = stateStartTime.toISOString();
+            
+            // If state started before today, add offline time from midnight to start of day
+            if (stateStartTime < startOfDay) {
+              // Was already OFF at midnight, so today's OFF time is from midnight to now
+              offDuration = (currentTime - startOfDay) / 1000;
+              lastStateChangeAt = startOfDay.toISOString(); // Show as "since midnight"
+            }
           }
         } else {
           // Process each toggle
@@ -545,8 +830,8 @@ router.get('/switch-stats', async (req, res) => {
               offDuration += duration;
             }
             
-            // Update state
-            if (log.action === 'switch_on') {
+            // Update state (actions are 'on'/'off', not 'switch_on'/'switch_off')
+            if (log.action === 'on') {
               lastState = 'on';
               lastOnAt = log.timestamp;
             } else {
@@ -557,15 +842,17 @@ router.get('/switch-stats', async (req, res) => {
             lastTimestamp = new Date(log.timestamp);
           });
           
-          // Add duration from last log to current time (or end of day)
+          // Add duration from last log to current time
           const now = new Date();
-          const currentTime = now > endOfDay ? endOfDay : now;
+          const currentTime = now; // Use actual current time for continuous tracking
           const remainingDuration = (currentTime - lastTimestamp) / 1000;
           
           if (lastState === 'on') {
             onDuration += remainingDuration;
+            lastStateChangeAt = lastOnAt; // When switch turned ON last time
           } else {
             offDuration += remainingDuration;
+            lastStateChangeAt = lastOffAt; // When switch turned OFF last time
           }
         }
         
@@ -591,14 +878,26 @@ router.get('/switch-stats', async (req, res) => {
           toggleCount,
           lastOnAt: lastOnAt || 'N/A',
           lastOffAt: lastOffAt || 'N/A',
+          lastStateChangeAt: lastStateChangeAt || 'N/A', // When current state started
           totalOnTime: formatDuration(onDuration),
           totalOffTime: formatDuration(offDuration),
-          currentState: switchItem.state
+          currentState: switchItem.state, // true = ON, false = OFF
+          currentStateDuration: formatDuration(switchItem.state ? onDuration : offDuration) // Duration in current state
         });
       }
     }
     
-    res.json({ switchStats });
+    // Add device status and last seen information
+    const deviceStatus = {
+      status: device.status, // 'online' or 'offline'
+      lastSeen: device.lastSeen,
+      name: device.name
+    };
+    
+    res.json({ 
+      switchStats,
+      deviceStatus // Include device status so frontend can show warning if offline
+    });
   } catch (error) {
     console.error('Error getting switch stats:', error);
     res.status(500).json({ error: 'Failed to get switch statistics' });

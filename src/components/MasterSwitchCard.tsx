@@ -120,11 +120,11 @@ export const MasterSwitchCard: React.FC<MasterSwitchCardProps> = ({
       {/* Master Switch Card */}
       <Card className="glass border-2 border-primary/20">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-primary" />
-            Master Switch
+          <CardTitle className="flex items-center gap-2 flex-wrap">
+            <Zap className="w-5 h-5 text-primary flex-shrink-0" />
+            <span className="truncate">Master Switch</span>
             {onlineDevices > 0 && (
-              <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700">
+              <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 whitespace-nowrap flex-shrink-0">
                 {onlineDevices} Online
               </span>
             )}
@@ -132,7 +132,7 @@ export const MasterSwitchCard: React.FC<MasterSwitchCardProps> = ({
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-600 cursor-help">
+                    <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-600 cursor-help whitespace-nowrap flex-shrink-0">
                       {offlineDevices} Offline
                     </span>
                   </TooltipTrigger>
@@ -141,7 +141,7 @@ export const MasterSwitchCard: React.FC<MasterSwitchCardProps> = ({
                       <p className="font-semibold mb-1">Offline Devices:</p>
                       {offlineList.length === 0 && <p>None</p>}
                                             {offlineList.slice(0, 8).map(d => (
-                        <p key={d.id}>{d.name}</p>
+                        <p key={d.id} className="truncate" title={d.name}>{d.name}</p>
                       ))}
                       {offlineList.length > 8 && (
                         <p className="italic">+ {offlineList.length - 8} more...</p>
@@ -154,25 +154,25 @@ export const MasterSwitchCard: React.FC<MasterSwitchCardProps> = ({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3">
             <div>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground break-words">
                 Control all {totalSwitches} switches at once
               </p>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground mt-1 break-words">
                 Currently {activeSwitches} of {totalSwitches} switches are on | {onlineDevices}/{totalDevices} devices online
               </p>
               {onlineDevices === 0 && (
-                <p className="text-xs text-red-600 mt-1">All devices offline — master control disabled.</p>
+                <p className="text-xs text-red-600 mt-1 break-words">All devices offline — master control disabled.</p>
               )}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap mt-2">
                 {mixed && !isBusy && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-700 border border-amber-300">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-700 border border-amber-300 whitespace-nowrap">
                     Mixed
                   </span>
                 )}
                 {isBusy && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-700 border border-blue-300 animate-pulse">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-700 border border-blue-300 animate-pulse whitespace-nowrap">
                     Syncing
                   </span>
                 )}
@@ -201,6 +201,7 @@ export const MasterSwitchCard: React.FC<MasterSwitchCardProps> = ({
                     size="sm"
                     disabled={onlineDevices === 0 || isBusy}
                     onClick={() => { if (!isBusy) { setForcedState(false); onMasterToggle(false); } }}
+                    className="whitespace-nowrap"
                   >
                     Turn all off
                   </Button>
@@ -238,13 +239,13 @@ export const MasterSwitchCard: React.FC<MasterSwitchCardProps> = ({
             {customSwitches.map((customSwitch) => (
               <Card key={customSwitch.id} className="glass">
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium">{customSwitch.name}</h4>
+                  <div className="flex items-center justify-between mb-2 gap-2">
+                    <h4 className="font-medium truncate flex-1" title={customSwitch.name}>{customSwitch.name}</h4>
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => setConfirmDeleteId(customSwitch.id)}
-                      className="text-destructive hover:text-destructive"
+                      className="text-destructive hover:text-destructive flex-shrink-0"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>

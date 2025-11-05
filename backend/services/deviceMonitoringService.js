@@ -2,6 +2,7 @@ const Device = require('../models/Device');
 const PowerConsumptionLog = require('../models/PowerConsumptionLog');
 const EnhancedLoggingService = require('./enhancedLoggingService');
 const DeviceStatusLog = require('../models/DeviceStatusLog');
+const ActivityLog = require('../models/ActivityLog');
 
 // Import metrics functions from metricsService
 const { timeLimitExceededCount, switchTimeOnMinutes } = require('../metricsService');
@@ -119,6 +120,22 @@ class DeviceMonitoringService {
       
       if (previousStatus !== newStatus) {
         console.log(`[MONITORING] Device ${device.name} status changed: ${previousStatus} -> ${newStatus}`);
+        
+        // Log status change to ActivityLog for uptime tracking
+        try {
+          await ActivityLog.create({
+            deviceId: device._id,
+            deviceName: device.name,
+            action: newStatus === 'online' ? 'device_online' : 'device_offline',
+            triggeredBy: 'system',
+            classroom: device.classroom,
+            location: device.location,
+            timestamp: new Date()
+          });
+          console.log(`[MONITORING] ActivityLog created: ${device.name} is now ${newStatus}`);
+        } catch (logError) {
+          console.error('[MONITORING] Failed to create ActivityLog:', logError);
+        }
         
         // Handle power tracking when device goes offline
         if (newStatus === 'offline') {

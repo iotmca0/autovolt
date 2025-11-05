@@ -278,23 +278,23 @@ export function ActivityFeed({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <p className="font-medium text-sm leading-tight">
+                          <p className="font-medium text-sm leading-tight break-words">
                             {activity.title}
                           </p>
                           {activity.description && (
-                            <p className="text-sm text-muted-foreground mt-1">
+                            <p className="text-sm text-muted-foreground mt-1 break-words">
                               {activity.description}
                             </p>
                           )}
                           {activity.user && (
-                            <div className="flex items-center gap-2 mt-2">
-                              <Avatar className="h-5 w-5">
+                            <div className="flex items-center gap-2 mt-2 min-w-0">
+                              <Avatar className="h-5 w-5 flex-shrink-0">
                                 <AvatarImage src={activity.user.avatar} />
                                 <AvatarFallback className="text-xs">
                                   {activity.user.name[0]}
                                 </AvatarFallback>
                               </Avatar>
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-xs text-muted-foreground truncate" title={activity.user.name}>
                                 {activity.user.name}
                               </span>
                             </div>

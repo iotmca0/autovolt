@@ -20,17 +20,17 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   return (
     <Card className="glass">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
+        <CardTitle className="text-sm font-medium text-muted-foreground truncate">
           {title}
         </CardTitle>
-        <div className="h-4 w-4 text-muted-foreground">
+        <div className="h-4 w-4 text-muted-foreground flex-shrink-0">
           {icon}
         </div>
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
+        <div className="text-2xl font-bold break-words">{value}</div>
         {subtitle && (
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="text-xs text-muted-foreground mt-1 break-words">
             {subtitle}
           </p>
         )}

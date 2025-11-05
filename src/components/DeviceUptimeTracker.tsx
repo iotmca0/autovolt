@@ -43,8 +43,17 @@ interface SwitchStats {
   toggleCount: number;
   lastOnAt: string;
   lastOffAt: string;
+  lastStateChangeAt: string; // When current state started
   totalOnTime: string;
   totalOffTime: string;
+  currentState: boolean; // true = ON, false = OFF
+  currentStateDuration: string; // Duration in current state
+}
+
+interface DeviceStatus {
+  status: string; // 'online' or 'offline'
+  lastSeen: string;
+  name: string;
 }
 
 export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
@@ -52,6 +61,7 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
   const [selectedDevice, setSelectedDevice] = useState<string>('all');
   const [uptimeStats, setUptimeStats] = useState<UptimeStats[]>([]);
   const [switchStats, setSwitchStats] = useState<SwitchStats[]>([]);
+  const [deviceStatus, setDeviceStatus] = useState<DeviceStatus | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Format duration in seconds to human-readable format
@@ -117,6 +127,7 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
   const fetchSwitchStats = async () => {
     if (selectedDevice === 'all') {
       setSwitchStats([]);
+      setDeviceStatus(null);
       return;
     }
 
@@ -129,9 +140,11 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
         }
       });
       setSwitchStats(response.data.switchStats || []);
+      setDeviceStatus(response.data.deviceStatus || null);
     } catch (error) {
       console.error('Error fetching switch stats:', error);
       setSwitchStats([]);
+      setDeviceStatus(null);
     } finally {
       setLoading(false);
     }
@@ -229,9 +242,9 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                 
                 return (
                   <div key={stat.deviceId} className="p-4 border rounded-lg space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-semibold text-lg">{stat.deviceName}</h4>
-                      <Badge variant={isOnline ? 'default' : 'destructive'}>
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="font-semibold text-lg truncate" title={stat.deviceName}>{stat.deviceName}</h4>
+                      <Badge variant={isOnline ? 'default' : 'destructive'} className="flex-shrink-0">
                         {isOnline ? '● Online' : '○ Offline'}
                       </Badge>
                     </div>
@@ -240,27 +253,27 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                     {isOnline ? (
                       <div className="p-4 bg-green-50 dark:bg-green-950 border-2 border-green-500 rounded-lg">
                         <div className="flex items-center gap-2 mb-3">
-                          <div className="w-4 h-4 bg-green-500 rounded-full animate-pulse" />
+                          <div className="w-4 h-4 bg-green-500 rounded-full animate-pulse flex-shrink-0" />
                           <span className="text-base font-semibold text-green-700 dark:text-green-300">
                             Device is Currently ONLINE
                           </span>
                         </div>
                         <div className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-muted-foreground">Came Online:</span>
-                            <span className="text-sm font-medium">
+                          <div className="flex justify-between items-center gap-2">
+                            <span className="text-sm text-muted-foreground flex-shrink-0">Came Online:</span>
+                            <span className="text-sm font-medium truncate" title={formatTimestamp(stat.lastOnlineAt)}>
                               {formatTimestamp(stat.lastOnlineAt) !== 'N/A' 
                                 ? formatTimestamp(stat.lastOnlineAt)
                                 : 'Unknown'}
                             </span>
                           </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-muted-foreground">Online For:</span>
-                            <span className="text-2xl font-bold text-green-600 dark:text-green-400">
+                          <div className="flex justify-between items-center gap-2">
+                            <span className="text-sm text-muted-foreground flex-shrink-0">Online For:</span>
+                            <span className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400 break-words">
                               {stat.totalUptime}
                             </span>
                           </div>
-                          <div className="text-xs text-center text-muted-foreground mt-2 p-2 bg-green-100 dark:bg-green-900 rounded">
+                          <div className="text-xs text-center text-muted-foreground mt-2 p-2 bg-green-100 dark:bg-green-900 rounded break-words">
                             {formatTimestamp(stat.lastOnlineAt) !== 'N/A'
                               ? `Online since ${getTimeSince(stat.lastOnlineAt)}`
                               : 'No downtime recorded'}
@@ -270,21 +283,21 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                     ) : (
                       <div className="p-4 bg-red-50 dark:bg-red-950 border-2 border-red-500 rounded-lg">
                         <div className="flex items-center gap-2 mb-3">
-                          <div className="w-4 h-4 bg-red-500 rounded-full" />
+                          <div className="w-4 h-4 bg-red-500 rounded-full flex-shrink-0" />
                           <span className="text-base font-semibold text-red-700 dark:text-red-300">
                             Device is Currently OFFLINE
                           </span>
                         </div>
                         <div className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-muted-foreground">Went Offline:</span>
-                            <span className="text-sm font-medium">
+                          <div className="flex justify-between items-center gap-2">
+                            <span className="text-sm text-muted-foreground flex-shrink-0">Went Offline:</span>
+                            <span className="text-sm font-medium truncate" title={formatTimestamp(stat.lastOfflineAt)}>
                               {formatTimestamp(stat.lastOfflineAt) !== 'N/A'
                                 ? formatTimestamp(stat.lastOfflineAt)
                                 : 'Unknown'}
                             </span>
                           </div>
-                          <div className="flex justify-between items-center">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-sm text-muted-foreground">Offline For:</span>
                             <span className="text-2xl font-bold text-red-600 dark:text-red-400">
                               {stat.totalDowntime}
@@ -347,86 +360,146 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
               </div>
             ) : (
               <div className="space-y-4">
-                {switchStats.map((stat) => (
-                  <div key={stat.switchId} className="p-4 border rounded-lg space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-semibold">{stat.switchName}</h4>
-                      <Badge variant="outline">
-                        {stat.toggleCount} toggle{stat.toggleCount !== 1 ? 's' : ''}
-                      </Badge>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      {/* On Duration */}
-                      <div className="p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Power className="h-4 w-4 text-blue-500" />
-                          <span className="text-xs font-medium">On Duration</span>
-                        </div>
-                        <div className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                          {stat.totalOnTime}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground mt-1">
-                          {formatTimestamp(stat.lastOnAt) !== 'N/A'
-                            ? `${getTimeSince(stat.lastOnAt)}`
-                            : 'Unknown'}
-                        </div>
+                {/* OFFLINE DEVICE WARNING - Show if device is offline */}
+                {deviceStatus && deviceStatus.status === 'offline' && (
+                  <div className="p-4 bg-red-50 dark:bg-red-950 border-2 border-red-500 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <div className="w-6 h-6 bg-red-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <span className="text-white font-bold text-sm">!</span>
                       </div>
-
-                      {/* Off Duration */}
-                      <div className="p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Power className="h-4 w-4 text-gray-500" />
-                          <span className="text-xs font-medium">Off Duration</span>
-                        </div>
-                        <div className="text-xl font-bold text-gray-600 dark:text-gray-400">
-                          {stat.totalOffTime}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground mt-1">
-                          {formatTimestamp(stat.lastOffAt) !== 'N/A'
-                            ? `${getTimeSince(stat.lastOffAt)}`
-                            : 'Unknown'}
-                        </div>
-                      </div>
-
-                      {/* Toggle Count */}
-                      <div className="p-3 bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-lg">
-                        <div className="flex items-center gap-2 mb-1">
-                          <ToggleRight className="h-4 w-4 text-purple-500" />
-                          <span className="text-xs font-medium">Toggle Count</span>
-                        </div>
-                        <div className="text-xl font-bold text-purple-600 dark:text-purple-400">
-                          {stat.toggleCount}x
-                        </div>
-                        <div className="text-[10px] text-muted-foreground mt-1">
-                          Total switches
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* On/Off Percentage Bar */}
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span>On Time Percentage</span>
-                        <span className="font-medium">
-                          {stat.onDuration + stat.offDuration > 0
-                            ? ((stat.onDuration / (stat.onDuration + stat.offDuration)) * 100).toFixed(1)
-                            : 0}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
-                        <div
-                          className="bg-blue-500 h-full transition-all"
-                          style={{
-                            width: `${stat.onDuration + stat.offDuration > 0
-                              ? (stat.onDuration / (stat.onDuration + stat.offDuration)) * 100
-                              : 0}%`
-                          }}
-                        />
+                      <div className="flex-1">
+                        <h4 className="font-bold text-red-700 dark:text-red-300 text-lg mb-2">
+                          ⚠️ Device is Currently OFFLINE
+                        </h4>
+                        <p className="text-red-600 dark:text-red-400 text-sm mb-2">
+                          <strong>{deviceStatus.name}</strong> is offline. The switch states shown below are the <strong>last known states</strong> before the device went offline.
+                        </p>
+                        <p className="text-red-600 dark:text-red-400 text-sm">
+                          Last seen: <strong>{deviceStatus.lastSeen ? formatTimestamp(deviceStatus.lastSeen) : 'Unknown'}</strong>
+                          {deviceStatus.lastSeen && ` (${getTimeSince(deviceStatus.lastSeen)})`}
+                        </p>
+                        <p className="text-red-600 dark:text-red-400 text-xs mt-2 italic">
+                          Note: If any switches show as "ON", they may not actually be ON right now. The device needs to come back online to update the real-time status.
+                        </p>
                       </div>
                     </div>
                   </div>
-                ))}
+                )}
+
+                {switchStats.map((stat) => {
+                  const isOn = stat.currentState;
+                  const isDeviceOffline = deviceStatus && deviceStatus.status === 'offline';
+                  const statusColor = isOn ? 'blue' : 'gray';
+                  const statusText = isOn ? 'ON' : 'OFF';
+                  const currentDuration = isOn ? stat.totalOnTime : stat.totalOffTime;
+                  const lastChangeTime = isOn ? stat.lastOnAt : stat.lastOffAt;
+                  
+                  return (
+                    <div key={stat.switchId} className={`p-4 border-2 rounded-lg space-y-3 ${
+                      isDeviceOffline
+                        ? 'border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-800'
+                        : isOn 
+                          ? 'border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800' 
+                          : 'border-gray-300 bg-gray-50 dark:bg-gray-900/30 dark:border-gray-700'
+                    }`}>
+                      {/* Header with Switch Name and Current Status */}
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <h4 className="font-semibold text-lg truncate" title={stat.switchName}>{stat.switchName}</h4>
+                          <Badge 
+                            variant={isOn ? "default" : "secondary"}
+                            className={`flex-shrink-0 ${
+                              isDeviceOffline 
+                                ? 'bg-red-500 text-white' 
+                                : isOn 
+                                  ? 'bg-blue-500 text-white' 
+                                  : 'bg-gray-500 text-white'
+                            }`}
+                          >
+                            {isDeviceOffline ? `⚠️ Last: ${statusText}` : `Currently ${statusText}`}
+                          </Badge>
+                        </div>
+                        {stat.toggleCount > 0 && (
+                          <Badge variant="outline" className="font-normal flex-shrink-0 whitespace-nowrap">
+                            Toggled {stat.toggleCount} time{stat.toggleCount !== 1 ? 's' : ''} today
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Current State Duration - Prominent Display */}
+                      <div className={`p-4 rounded-lg ${
+                        isOn 
+                          ? 'bg-blue-100 dark:bg-blue-900/40 border border-blue-300 dark:border-blue-700' 
+                          : 'bg-gray-100 dark:bg-gray-800/40 border border-gray-300 dark:border-gray-600'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <Power className={`h-5 w-5 ${isOn ? 'text-blue-600' : 'text-gray-600'}`} />
+                              <span className="text-sm font-medium text-muted-foreground">
+                                {isOn ? 'Been ON for' : 'Been OFF for'}
+                              </span>
+                            </div>
+                            <div className={`text-3xl font-bold ${
+                              isOn ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'
+                            }`}>
+                              {currentDuration}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs text-muted-foreground mb-1">
+                              Last {isOn ? 'turned ON' : 'turned OFF'}
+                            </div>
+                            <div className="text-sm font-medium">
+                              {formatTimestamp(lastChangeTime) !== 'N/A'
+                                ? formatTimestamp(lastChangeTime)
+                                : 'Unknown'}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {formatTimestamp(lastChangeTime) !== 'N/A'
+                                ? `(${getTimeSince(lastChangeTime)})`
+                                : ''}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Today's Summary - Compact Stats */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="p-3 bg-white dark:bg-gray-800 border rounded-lg">
+                          <div className="text-xs text-muted-foreground mb-1">Total ON Time Today</div>
+                          <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">{stat.totalOnTime}</div>
+                        </div>
+                        <div className="p-3 bg-white dark:bg-gray-800 border rounded-lg">
+                          <div className="text-xs text-muted-foreground mb-1">Total OFF Time Today</div>
+                          <div className="text-lg font-semibold text-gray-600 dark:text-gray-400">{stat.totalOffTime}</div>
+                        </div>
+                      </div>
+
+                      {/* On/Off Percentage Bar */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">ON Time Percentage</span>
+                          <span className="font-semibold">
+                            {stat.onDuration + stat.offDuration > 0
+                              ? ((stat.onDuration / (stat.onDuration + stat.offDuration)) * 100).toFixed(1)
+                              : 0}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="bg-blue-500 h-full transition-all"
+                            style={{
+                              width: `${stat.onDuration + stat.offDuration > 0
+                                ? (stat.onDuration / (stat.onDuration + stat.offDuration)) * 100
+                                : 0}%`
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </CardContent>

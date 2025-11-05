@@ -5,8 +5,8 @@
 /* AutoVolt Enhanced Design System */
 @layer base {
   :root {
-    /* Light Theme Colors - Professional Blue-Gray Palette */
-    --background: 220 17% 96%;
+    /* Light Theme Colors - Professional Soft Background */
+    --background: 210 20% 98%;
     --foreground: 222.2 84% 4.9%;
 
     /* Cards & Surfaces - Clear Differentiation */
@@ -15,12 +15,12 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    /* Vibrant Professional Blue Primary */
-    --primary: 217 91% 55%;
+    /* Professional Blue Primary */
+    --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
 
-    /* Teal Secondary for Accents */
-    --secondary: 174 72% 45%;
+    /* Success Green */
+    --secondary: 142 76% 36%;
     --secondary-foreground: 0 0% 100%;
 
     /* Status Colors */
@@ -28,27 +28,10 @@
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
-    --danger: 0 72% 51%;
-    --danger-foreground: 0 0% 100%;
-
-    /* Muted & Subtle Elements */
-    --muted: 220 17% 88%;
-    --muted-foreground: 215 16.3% 46.9%;
-    --accent: 217 91% 94%;
-    --accent-foreground: 217 91% 25%;
-
-    /* Borders & Dividers */
-    --border: 214 20% 80%;
-    --input: 214 20% 80%;
-    --ring: 217 91% 55%;
-
-    /* Destructive Actions */
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-
-    /* Radius */
-    --radius: 0.5rem;
-  }
+    --danger: 0 72% 51%.dark .sidebar-nav-item.active {
+  background: hsl(var(--primary) / 0.15);
+  border-color: hsl(var(--primary) / 0.4);
+}
 
 /* ============================================
    ACCESSIBILITY STYLES
@@ -310,9 +293,56 @@
 
 /* ============================================
    END ACCESSIBILITY STYLES
-   ============================================ */
+   ============================================ */  --danger-foreground: 0 0% 100%;
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 100%;
 
-  .dark {
+    /* Neutral Surfaces - Better Contrast */
+    --muted: 210 20% 92%;
+    --muted-foreground: 215 16% 40%;
+    --accent: 210 20% 94%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    /* Interactive Elements - Defined Borders */
+    --border: 214 20% 85%;
+    --input: 214 20% 92%;
+    --ring: 217 91% 60%;
+
+    /* Destructive */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Component Variants */
+    --glass-bg: 0 0% 100% / 0.85;
+    --glass-border: 214 20% 85% / 0.8;
+    --device-online: 142 76% 36%;
+    --device-offline: 0 0% 60%;
+    --switch-on: 142 76% 36%;
+    --switch-off: 0 0% 70%;
+
+    /* Chart Colors */
+    --chart-1: 217 91% 60%;
+    --chart-2: 142 76% 36%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 82% 52%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%) 0%, hsl(217 91% 45%) 100%);
+    --gradient-success: linear-gradient(135deg, hsl(142 76% 36%) 0%, hsl(159 71% 45%) 100%);
+    --gradient-danger: linear-gradient(135deg, hsl(0 72% 51%) 0%, hsl(340 82% 52%) 100%);
+
+    --radius: 0.75rem;
+    
+    /* Shadow System for Light Theme */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  }
+
+    .dark {
     /* Pure Black Theme for Professional Look */
     --background: 0 0% 7%;
     --foreground: 0 0% 95%;

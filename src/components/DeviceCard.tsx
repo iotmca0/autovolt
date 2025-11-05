@@ -169,20 +169,20 @@ export default memo(function DeviceCard({
           </div>
 
           {/* Device Info */}
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-lg font-semibold mb-1 truncate">
+          <div className="flex-1 min-w-0 max-w-full">
+            <CardTitle className="text-lg font-semibold mb-1 truncate" title={device.name}>
               {device.name}
             </CardTitle>
             <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-              <div className="flex items-center gap-1.5">
-                <Signal className="w-3 h-3" />
-                <span className="truncate">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Signal className="w-3 h-3 flex-shrink-0" />
+                <span className="truncate" title={device.classroom || device.location}>
                   {device.classroom || device.location}
                 </span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <Activity className="w-3 h-3" />
-                <span>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Activity className="w-3 h-3 flex-shrink-0" />
+                <span className="truncate">
                   {new Date(device.lastSeen).toLocaleString('en-US', {
                     month: 'short',
                     day: 'numeric',
@@ -213,15 +213,15 @@ export default memo(function DeviceCard({
           {/* Device Details - Cleaner Layout */}
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="flex flex-col gap-0.5">
+              <div className="flex flex-col gap-0.5 min-w-0">
                 <span className="text-muted-foreground">MAC Address</span>
-                <span className="font-mono text-[10px] truncate">
+                <span className="font-mono text-[10px] truncate" title={device.macAddress}>
                   {device.macAddress}
                 </span>
               </div>
-              <div className="flex flex-col gap-0.5">
+              <div className="flex flex-col gap-0.5 min-w-0">
                 <span className="text-muted-foreground">Location</span>
-                <span className="font-medium truncate">
+                <span className="font-medium truncate" title={device.location}>
                   {device.location}
                 </span>
               </div>
@@ -248,24 +248,24 @@ export default memo(function DeviceCard({
                       key={sw.id || `${sw.name}-${sw.gpio ?? sw.relayGpio ?? i}`}
                       className={`
                         flex items-center justify-between p-2 rounded-lg border
-                        transition-all duration-200
+                        transition-all duration-200 gap-2
                         ${isOn 
                           ? 'bg-success/10 border-success/20' 
                           : 'bg-muted/50 border-border'
                         }
                       `}
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Power className={`w-3 h-3 ${isOn ? 'text-success' : 'text-muted-foreground'}`} />
-                          <span className={`text-sm font-medium truncate ${isOn ? 'text-success' : ''}`}>
+                      <div className="flex-1 min-w-0 overflow-hidden">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Power className={`w-3 h-3 flex-shrink-0 ${isOn ? 'text-success' : 'text-muted-foreground'}`} />
+                          <span className={`text-sm font-medium truncate ${isOn ? 'text-success' : ''}`} title={sw.name}>
                             {sw.name}
                           </span>
                         </div>
                         <div className="flex gap-2 mt-1 text-xs text-muted-foreground">
-                          <span>GPIO {sw.gpio ?? sw.relayGpio}</span>
+                          <span className="whitespace-nowrap">GPIO {sw.gpio ?? sw.relayGpio}</span>
                           <span>•</span>
-                          <span>{sw.type}</span>
+                          <span className="truncate">{sw.type}</span>
                         </div>
                       </div>
 
@@ -277,7 +277,7 @@ export default memo(function DeviceCard({
                           if (sid) onToggleSwitch(device.id, sid);
                         }}
                         disabled={!isOnline}
-                        className={`ml-2 min-w-[60px] ${isOn ? 'switch-on' : ''}`}
+                        className={`flex-shrink-0 min-w-[60px] ${isOn ? 'switch-on' : ''}`}
                       >
                         {isOn ? 'ON' : 'OFF'}
                       </Button>

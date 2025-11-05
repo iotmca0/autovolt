@@ -180,6 +180,7 @@ class MQTTService {
       }
 
       // Update device status
+      const previousStatus = device.status;
       device.status = 'online';
       device.lastSeen = new Date();
 
@@ -216,6 +217,24 @@ class MQTTService {
 
       await device.save();
       logger.info(`[MQTT] Device ${device.macAddress} marked as online`);
+
+      // Log device status change to ActivityLog if status changed from offline to online
+      if (previousStatus !== 'online') {
+        try {
+          await ActivityLog.create({
+            deviceId: device._id,
+            deviceName: device.name,
+            action: 'device_online',
+            triggeredBy: 'heartbeat',
+            classroom: device.classroom,
+            location: device.location,
+            timestamp: new Date()
+          });
+          logger.info(`[MQTT] ActivityLog created: ${device.name} came online`);
+        } catch (logError) {
+          logger.error('[MQTT] Failed to create ActivityLog:', logError);
+        }
+      }
 
       // Log device status
       await this.logDeviceStatus(device, data);
