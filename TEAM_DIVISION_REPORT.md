@@ -204,45 +204,51 @@ backend/
 **Focus:** Hardware integration, device communication, automation  
 
 #### **Responsibilities:**
-- ESP32 firmware integration
-- MQTT communication protocol
-- Device discovery and registration
-- Real-time device monitoring
-- Automation and scheduling
-- Hardware troubleshooting
+- ESP32 firmware development (embedded C++)
+- Backend IoT services (Node.js MQTT handling)
+- Device discovery and registration APIs
+- Real-time device monitoring system
+- OTA firmware update infrastructure
+- Hardware abstraction and sensor integration
+- MQTT broker configuration and management
+- Device management dashboard backend
 
 #### **Key Files:**
 ```
 backend/services/
-├── mqttService.js
-├── scheduleService.js
-├── deviceService.js
-└── firmwareService.js
+├── mqttService.js (MQTT broker integration)
+├── scheduleService.js (automation logic)
+├── deviceService.js (device management APIs)
+└── firmwareService.js (OTA update system)
 
 backend/routes/
-├── powerAnalytics.js
-├── deviceControl.js
-└── firmware.js
+├── powerAnalytics.js (device analytics APIs)
+├── deviceControl.js (device control endpoints)
+└── firmware.js (firmware management APIs)
 
 ESP32_FIRMWARE/
-├── platformio.ini
+├── platformio.ini (build configuration)
 ├── src/
-│   ├── main.cpp
-│   ├── wifi_manager.cpp
-│   ├── mqtt_client.cpp
-│   └── power_monitor.cpp
+│   ├── main.cpp (firmware entry point)
+│   ├── wifi_manager.cpp (WiFi connectivity)
+│   ├── mqtt_client.cpp (MQTT communication)
+│   ├── device_manager.cpp (switch control)
+│   ├── sensor_manager.cpp (PIR/temperature sensors)
+│   ├── ota_manager.cpp (firmware updates)
+│   ├── config_manager.cpp (persistent config)
+│   └── power_manager.cpp (deep sleep/power saving)
 └── lib/
-    ├── relay_control/
-    └── sensor_reading/
+    ├── relay_control/ (4-channel relay library)
+    └── sensor_reading/ (multi-sensor integration)
 ```
 
 #### **Technologies Used:**
-- MQTT protocol (Mosquitto)
-- ESP32 microcontroller
-- PlatformIO development
-- WiFi connectivity
-- GPIO control
-- Sensor integration
+- **ESP32 Firmware:** C++ with FreeRTOS, PlatformIO
+- **Backend Services:** Node.js MQTT client libraries
+- **Communication:** MQTT protocol, JSON messaging
+- **Hardware:** GPIO control, ADC, I2C, SPI interfaces
+- **Power Management:** Deep sleep, wake-on-interrupt
+- **OTA Updates:** HTTP firmware downloads, integrity checks
 
 ---
 
@@ -250,14 +256,23 @@ ESP32_FIRMWARE/
 
 ### **Code Contribution by Module:**
 
-| Module | Files | Lines | Complexity | Team Member |
-|--------|-------|-------|------------|-------------|
-| Frontend & UI | 45 | 12,000 | Medium | Frontend Dev |
-| Backend API | 35 | 8,000 | High | Backend Dev |
-| Database & Models | 25 | 6,000 | High | Database Architect |
-| Power Analytics | 20 | 15,000 | Very High | Analytics Engineer |
-| IoT & Devices | 25 | 9,000 | High | IoT Engineer |
+| Module | Files | Lines | Complexity | Key Components |
+|--------|-------|-------|------------|----------------|
+| Frontend & UI | 45 | 12,000 | Medium | React components, UI/UX, responsive design |
+| Backend API | 35 | 8,000 | High | Express server, authentication, middleware |
+| Database & Models | 25 | 6,000 | High | MongoDB schemas, aggregation pipelines |
+| Power Analytics | 20 | 15,000 | Very High | Complex algorithms, real-time processing |
+| IoT & Devices | 25 | 9,000 | High | ESP32 firmware + backend IoT services |
 | **Total** | **150** | **50,000** | - | **5 Members** |
+
+**Balance Analysis:**
+- **ESP32 Firmware (IoT)**: ~4,000 lines of embedded C++ (memory-constrained, real-time)
+- **Backend IoT Services (IoT)**: ~5,000 lines of Node.js (MQTT handling, device APIs)
+- **Analytics Algorithms**: 15,000 lines of complex mathematical computations
+- **Database Operations**: 6,000 lines of schema design and queries
+- **Frontend Components**: 12,000 lines of UI/UX development
+
+Each module represents comparable workload with different technical challenges.
 
 ### **Integration Points:**
 - **Frontend ↔ Backend:** REST API communication
