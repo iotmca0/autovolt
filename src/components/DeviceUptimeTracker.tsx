@@ -32,6 +32,7 @@ interface UptimeStats {
   lastOfflineAt: string;
   totalUptime: string;
   totalDowntime: string;
+  currentStatus: string; // 'online' or 'offline'
 }
 
 interface SwitchStats {
@@ -222,74 +223,104 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
             </div>
           ) : (
             <div className="space-y-4">
-              {uptimeStats.map((stat) => (
-                <div key={stat.deviceId} className="p-4 border rounded-lg space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-semibold text-lg">{stat.deviceName}</h4>
-                    <Badge
-                      variant={stat.onlineDuration > stat.offlineDuration ? 'default' : 'destructive'}
-                    >
-                      {stat.onlineDuration > stat.offlineDuration ? 'Healthy' : 'Issues Detected'}
-                    </Badge>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Online Stats */}
-                    <div className="p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-3 h-3 bg-green-500 rounded-full" />
-                        <span className="text-sm font-medium">Online Duration</span>
-                      </div>
-                      <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                        {stat.totalUptime}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {formatTimestamp(stat.lastOnlineAt) !== 'N/A' 
-                          ? `Since: ${formatTimestamp(stat.lastOnlineAt)} (${getTimeSince(stat.lastOnlineAt)})`
-                          : 'Last online: Unknown'}
-                      </div>
+              {uptimeStats.map((stat) => {
+                // Determine current status based on which duration is being tracked
+                const isOnline = stat.currentStatus === 'online';
+                
+                return (
+                  <div key={stat.deviceId} className="p-4 border rounded-lg space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-semibold text-lg">{stat.deviceName}</h4>
+                      <Badge variant={isOnline ? 'default' : 'destructive'}>
+                        {isOnline ? '● Online' : '○ Offline'}
+                      </Badge>
                     </div>
 
-                    {/* Offline Stats */}
-                    <div className="p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-3 h-3 bg-red-500 rounded-full" />
-                        <span className="text-sm font-medium">Offline Duration</span>
+                    {/* Show ONLY Online card if device is online, or ONLY Offline card if offline */}
+                    {isOnline ? (
+                      <div className="p-4 bg-green-50 dark:bg-green-950 border-2 border-green-500 rounded-lg">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-4 h-4 bg-green-500 rounded-full animate-pulse" />
+                          <span className="text-base font-semibold text-green-700 dark:text-green-300">
+                            Device is Currently ONLINE
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-muted-foreground">Came Online:</span>
+                            <span className="text-sm font-medium">
+                              {formatTimestamp(stat.lastOnlineAt) !== 'N/A' 
+                                ? formatTimestamp(stat.lastOnlineAt)
+                                : 'Unknown'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-muted-foreground">Online For:</span>
+                            <span className="text-2xl font-bold text-green-600 dark:text-green-400">
+                              {stat.totalUptime}
+                            </span>
+                          </div>
+                          <div className="text-xs text-center text-muted-foreground mt-2 p-2 bg-green-100 dark:bg-green-900 rounded">
+                            {formatTimestamp(stat.lastOnlineAt) !== 'N/A'
+                              ? `Online since ${getTimeSince(stat.lastOnlineAt)}`
+                              : 'No downtime recorded'}
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                        {stat.totalDowntime}
+                    ) : (
+                      <div className="p-4 bg-red-50 dark:bg-red-950 border-2 border-red-500 rounded-lg">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-4 h-4 bg-red-500 rounded-full" />
+                          <span className="text-base font-semibold text-red-700 dark:text-red-300">
+                            Device is Currently OFFLINE
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-muted-foreground">Went Offline:</span>
+                            <span className="text-sm font-medium">
+                              {formatTimestamp(stat.lastOfflineAt) !== 'N/A'
+                                ? formatTimestamp(stat.lastOfflineAt)
+                                : 'Unknown'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-muted-foreground">Offline For:</span>
+                            <span className="text-2xl font-bold text-red-600 dark:text-red-400">
+                              {stat.totalDowntime}
+                            </span>
+                          </div>
+                          <div className="text-xs text-center text-muted-foreground mt-2 p-2 bg-red-100 dark:bg-red-900 rounded">
+                            {formatTimestamp(stat.lastOfflineAt) !== 'N/A'
+                              ? `Offline since ${getTimeSince(stat.lastOfflineAt)}`
+                              : 'Connection lost'}
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {formatTimestamp(stat.lastOfflineAt) !== 'N/A'
-                          ? `Since: ${formatTimestamp(stat.lastOfflineAt)} (${getTimeSince(stat.lastOfflineAt)})`
-                          : 'Last offline: Unknown'}
-                      </div>
-                    </div>
-                  </div>
+                    )}
 
-                  {/* Uptime Percentage Bar */}
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Uptime Percentage</span>
-                      <span className="font-medium">
-                        {stat.onlineDuration + stat.offlineDuration > 0
-                          ? ((stat.onlineDuration / (stat.onlineDuration + stat.offlineDuration)) * 100).toFixed(1)
-                          : 0}%
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
-                      <div
-                        className="bg-green-500 h-full transition-all"
-                        style={{
-                          width: `${stat.onlineDuration + stat.offlineDuration > 0
-                            ? (stat.onlineDuration / (stat.onlineDuration + stat.offlineDuration)) * 100
-                            : 0}%`
-                        }}
-                      />
-                    </div>
+                    {/* Optional: Show uptime percentage only if there's historical data */}
+                    {stat.onlineDuration + stat.offlineDuration > 0 && (
+                      <div className="space-y-2 pt-2 border-t">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Today's Uptime</span>
+                          <span className="font-medium">
+                            {((stat.onlineDuration / (stat.onlineDuration + stat.offlineDuration)) * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="bg-green-500 h-full transition-all"
+                            style={{
+                              width: `${(stat.onlineDuration / (stat.onlineDuration + stat.offlineDuration)) * 100}%`
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>
