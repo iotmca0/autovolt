@@ -79,6 +79,20 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
     });
   };
 
+  // Calculate time elapsed since timestamp
+  const getTimeSince = (timestamp: string): string => {
+    if (!timestamp || timestamp === 'N/A') return 'Unknown';
+    const now = new Date();
+    const past = new Date(timestamp);
+    const diffMs = now.getTime() - past.getTime();
+    const diffSeconds = Math.floor(diffMs / 1000);
+    
+    if (diffSeconds < 60) return `${diffSeconds}s ago`;
+    if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`;
+    if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h ago`;
+    return `${Math.floor(diffSeconds / 86400)}d ago`;
+  };
+
   // Fetch uptime/downtime statistics
   const fetchUptimeStats = async () => {
     setLoading(true);
@@ -230,7 +244,9 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                         {stat.totalUptime}
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">
-                        Last online: {formatTimestamp(stat.lastOnlineAt)}
+                        {formatTimestamp(stat.lastOnlineAt) !== 'N/A' 
+                          ? `Since: ${formatTimestamp(stat.lastOnlineAt)} (${getTimeSince(stat.lastOnlineAt)})`
+                          : 'Last online: Unknown'}
                       </div>
                     </div>
 
@@ -244,7 +260,9 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                         {stat.totalDowntime}
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">
-                        Last offline: {formatTimestamp(stat.lastOfflineAt)}
+                        {formatTimestamp(stat.lastOfflineAt) !== 'N/A'
+                          ? `Since: ${formatTimestamp(stat.lastOfflineAt)} (${getTimeSince(stat.lastOfflineAt)})`
+                          : 'Last offline: Unknown'}
                       </div>
                     </div>
                   </div>
@@ -318,7 +336,9 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                           {stat.totalOnTime}
                         </div>
                         <div className="text-[10px] text-muted-foreground mt-1">
-                          Last ON: {formatTimestamp(stat.lastOnAt)}
+                          {formatTimestamp(stat.lastOnAt) !== 'N/A'
+                            ? `${getTimeSince(stat.lastOnAt)}`
+                            : 'Unknown'}
                         </div>
                       </div>
 
@@ -332,7 +352,9 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                           {stat.totalOffTime}
                         </div>
                         <div className="text-[10px] text-muted-foreground mt-1">
-                          Last OFF: {formatTimestamp(stat.lastOffAt)}
+                          {formatTimestamp(stat.lastOffAt) !== 'N/A'
+                            ? `${getTimeSince(stat.lastOffAt)}`
+                            : 'Unknown'}
                         </div>
                       </div>
 

@@ -353,37 +353,89 @@ router.get('/device-uptime', async (req, res) => {
       let offlineDuration = 0;
       let lastStatus = device.status === 'online' ? 'online' : 'offline';
       let lastTimestamp = startOfDay;
-      let lastOnlineAt = 'N/A';
-      let lastOfflineAt = 'N/A';
+      let lastOnlineAt = device.status === 'online' && device.lastSeen ? device.lastSeen : null;
+      let lastOfflineAt = device.status === 'offline' && device.lastSeen ? device.lastSeen : null;
       
-      // Process each status change
-      statusLogs.forEach(log => {
-        const duration = (new Date(log.timestamp) - lastTimestamp) / 1000; // in seconds
+      // If no logs exist, calculate based on current status and lastSeen
+      if (statusLogs.length === 0) {
+        const now = new Date();
+        const currentTime = now > endOfDay ? endOfDay : now;
+        
+        if (device.lastSeen) {
+          const lastSeenDate = new Date(device.lastSeen);
+          
+          if (device.status === 'online') {
+            // Device is currently online
+            if (lastSeenDate < startOfDay) {
+              // Device has been online since before this day started
+              onlineDuration = (currentTime - startOfDay) / 1000;
+              lastOnlineAt = startOfDay.toISOString();
+            } else if (lastSeenDate >= startOfDay && lastSeenDate <= currentTime) {
+              // Device came online during this day
+              offlineDuration = (lastSeenDate - startOfDay) / 1000;
+              onlineDuration = (currentTime - lastSeenDate) / 1000;
+              lastOnlineAt = device.lastSeen;
+            }
+          } else {
+            // Device is currently offline
+            if (lastSeenDate < startOfDay) {
+              // Device has been offline since before this day started
+              offlineDuration = (currentTime - startOfDay) / 1000;
+              lastOfflineAt = startOfDay.toISOString();
+            } else if (lastSeenDate >= startOfDay && lastSeenDate <= currentTime) {
+              // Device went offline during this day
+              onlineDuration = (lastSeenDate - startOfDay) / 1000;
+              offlineDuration = (currentTime - lastSeenDate) / 1000;
+              lastOfflineAt = device.lastSeen;
+            }
+          }
+        } else {
+          // No lastSeen timestamp, assume current status for entire day
+          const now = new Date();
+          const currentTime = now > endOfDay ? endOfDay : now;
+          const totalDuration = (currentTime - startOfDay) / 1000;
+          
+          if (device.status === 'online') {
+            onlineDuration = totalDuration;
+            lastOnlineAt = startOfDay.toISOString();
+          } else {
+            offlineDuration = totalDuration;
+            lastOfflineAt = startOfDay.toISOString();
+          }
+        }
+      } else {
+        // Process logs if they exist
+        statusLogs.forEach(log => {
+          const duration = (new Date(log.timestamp) - lastTimestamp) / 1000; // in seconds
+          
+          if (lastStatus === 'online') {
+            onlineDuration += duration;
+          } else {
+            offlineDuration += duration;
+          }
+          
+          // Update status based on action
+          if (log.action === 'device_online' || log.action === 'device_connected') {
+            lastStatus = 'online';
+            lastOnlineAt = log.timestamp;
+          } else {
+            lastStatus = 'offline';
+            lastOfflineAt = log.timestamp;
+          }
+          
+          lastTimestamp = new Date(log.timestamp);
+        });
+        
+        // Add duration from last log to current time (or end of day)
+        const now = new Date();
+        const currentTime = now > endOfDay ? endOfDay : now;
+        const remainingDuration = (currentTime - lastTimestamp) / 1000;
         
         if (lastStatus === 'online') {
-          onlineDuration += duration;
+          onlineDuration += remainingDuration;
         } else {
-          offlineDuration += duration;
+          offlineDuration += remainingDuration;
         }
-        
-        // Update status based on action
-        if (log.action === 'device_online' || log.action === 'device_connected') {
-          lastStatus = 'online';
-          lastOnlineAt = log.timestamp;
-        } else {
-          lastStatus = 'offline';
-          lastOfflineAt = log.timestamp;
-        }
-        
-        lastTimestamp = new Date(log.timestamp);
-      });
-      
-      // Add duration from last log to end of day
-      const remainingDuration = (endOfDay - lastTimestamp) / 1000;
-      if (lastStatus === 'online') {
-        onlineDuration += remainingDuration;
-      } else {
-        offlineDuration += remainingDuration;
       }
       
       // Format durations
@@ -405,10 +457,12 @@ router.get('/device-uptime', async (req, res) => {
         deviceName: device.name,
         onlineDuration: Math.floor(onlineDuration),
         offlineDuration: Math.floor(offlineDuration),
-        lastOnlineAt,
-        lastOfflineAt,
+        lastOnlineAt: lastOnlineAt || 'N/A',
+        lastOfflineAt: lastOfflineAt || 'N/A',
         totalUptime: formatDuration(onlineDuration),
-        totalDowntime: formatDuration(offlineDuration)
+        totalDowntime: formatDuration(offlineDuration),
+        currentStatus: device.status,
+        lastSeen: device.lastSeen || null
       });
     }
     
@@ -462,37 +516,57 @@ router.get('/switch-stats', async (req, res) => {
         let toggleCount = switchLogs.length;
         let lastState = switchItem.state ? 'on' : 'off';
         let lastTimestamp = startOfDay;
-        let lastOnAt = 'N/A';
-        let lastOffAt = 'N/A';
+        let lastOnAt = null;
+        let lastOffAt = null;
         
-        // Process each toggle
-        switchLogs.forEach(log => {
-          const duration = (new Date(log.timestamp) - lastTimestamp) / 1000; // in seconds
+        // If no logs exist, calculate based on current switch state
+        if (switchLogs.length === 0) {
+          const now = new Date();
+          const currentTime = now > endOfDay ? endOfDay : now;
+          const totalDuration = (currentTime - startOfDay) / 1000;
+          
+          if (switchItem.state) {
+            // Switch is currently ON
+            onDuration = totalDuration;
+            lastOnAt = switchItem.lastStateChange || startOfDay.toISOString();
+          } else {
+            // Switch is currently OFF
+            offDuration = totalDuration;
+            lastOffAt = switchItem.lastStateChange || startOfDay.toISOString();
+          }
+        } else {
+          // Process each toggle
+          switchLogs.forEach(log => {
+            const duration = (new Date(log.timestamp) - lastTimestamp) / 1000; // in seconds
+            
+            if (lastState === 'on') {
+              onDuration += duration;
+            } else {
+              offDuration += duration;
+            }
+            
+            // Update state
+            if (log.action === 'switch_on') {
+              lastState = 'on';
+              lastOnAt = log.timestamp;
+            } else {
+              lastState = 'off';
+              lastOffAt = log.timestamp;
+            }
+            
+            lastTimestamp = new Date(log.timestamp);
+          });
+          
+          // Add duration from last log to current time (or end of day)
+          const now = new Date();
+          const currentTime = now > endOfDay ? endOfDay : now;
+          const remainingDuration = (currentTime - lastTimestamp) / 1000;
           
           if (lastState === 'on') {
-            onDuration += duration;
+            onDuration += remainingDuration;
           } else {
-            offDuration += duration;
+            offDuration += remainingDuration;
           }
-          
-          // Update state
-          if (log.action === 'switch_on') {
-            lastState = 'on';
-            lastOnAt = log.timestamp;
-          } else {
-            lastState = 'off';
-            lastOffAt = log.timestamp;
-          }
-          
-          lastTimestamp = new Date(log.timestamp);
-        });
-        
-        // Add duration from last log to end of day
-        const remainingDuration = (endOfDay - lastTimestamp) / 1000;
-        if (lastState === 'on') {
-          onDuration += remainingDuration;
-        } else {
-          offDuration += remainingDuration;
         }
         
         // Format durations
@@ -515,10 +589,11 @@ router.get('/switch-stats', async (req, res) => {
           onDuration: Math.floor(onDuration),
           offDuration: Math.floor(offDuration),
           toggleCount,
-          lastOnAt,
-          lastOffAt,
+          lastOnAt: lastOnAt || 'N/A',
+          lastOffAt: lastOffAt || 'N/A',
           totalOnTime: formatDuration(onDuration),
-          totalOffTime: formatDuration(offDuration)
+          totalOffTime: formatDuration(offDuration),
+          currentState: switchItem.state
         });
       }
     }
