@@ -201,35 +201,41 @@ mqttClient.on('message', (topic, message) => {
               console.error('[MQTT] Log error details:', logError);
             }
 
-            // Create ActivityLog entries for state changes (for energy consumption calculation)
+            // DISABLED: ActivityLog creation moved to avoid duplicates
+            // ActivityLog is created in deviceController.js when user toggles via web UI
+            // Only create logs here for MANUAL physical switch presses (manualOverride flag)
             if (stateChanges.length > 0) {
               try {
                 const ActivityLog = require('./models/ActivityLog');
                 
                 for (const change of stateChanges) {
-                  const action = change.newState ? 
-                    (change.manualOverride ? 'manual_on' : 'on') : 
-                    (change.manualOverride ? 'manual_off' : 'off');
-                  
-                  await ActivityLog.create({
-                    deviceId: device._id,
-                    deviceName: device.name,
-                    switchId: change.switchId,
-                    switchName: change.switchName,
-                    action: action,
-                    triggeredBy: change.manualOverride ? 'manual_switch' : 'system',
-                    classroom: device.classroom,
-                    location: device.location,
-                    timestamp: new Date(),
-                    context: {
-                      source: 'esp32_state_update',
-                      previousState: change.oldState,
-                      newState: change.newState,
-                      manualOverride: change.manualOverride
-                    }
-                  });
-                  
-                  console.log(`[MQTT] ✅ Created ActivityLog for ${device.name} - ${change.switchName}: ${action}`);
+                  // Only log if this was a MANUAL physical switch press, not a web UI toggle
+                  if (change.manualOverride) {
+                    const action = change.newState ? 'manual_on' : 'manual_off';
+                    
+                    await ActivityLog.create({
+                      deviceId: device._id,
+                      deviceName: device.name,
+                      switchId: change.switchId,
+                      switchName: change.switchName,
+                      action: action,
+                      triggeredBy: 'manual_switch',
+                      classroom: device.classroom,
+                      location: device.location,
+                      timestamp: new Date(),
+                      context: {
+                        source: 'esp32_physical_switch',
+                        previousState: change.oldState,
+                        newState: change.newState,
+                        manualOverride: true
+                      }
+                    });
+                    
+                    console.log(`[MQTT] ✅ Created ActivityLog for MANUAL switch: ${device.name} - ${change.switchName}: ${action}`);
+                  } else {
+                    // State change was from web UI - log is already created by deviceController
+                    console.log(`[MQTT] ℹ️  Skipping ActivityLog (web UI toggle): ${device.name} - ${change.switchName}`);
+                  }
                 }
               } catch (activityError) {
                 console.error('[MQTT] ❌ Error creating ActivityLog entries:', activityError.message);
@@ -417,11 +423,11 @@ mqttClient.on('message', (topic, message) => {
             })
             .catch(err => console.error('[MQTT] Error processing manual switch:', err.message));
         } else if (data.type === 'switch_event') {
-          // Handle sensor-triggered switch event for logging
-          console.log('[MQTT] Sensor switch event:', data);
-          // Find the device and log the sensor operation
+          // Handle switch event for both ActivityLog AND new power tracking system
+          console.log('[MQTT] Switch event:', data);
           const Device = require('./models/Device');
           const ActivityLog = require('./models/ActivityLog');
+          const telemetryIngestionService = require('./services/telemetryIngestionService');
 
           // Normalize MAC address
           function normalizeMac(mac) {
@@ -452,31 +458,76 @@ mqttClient.on('message', (topic, message) => {
                 // Find the switch by GPIO
                 const switchInfo = device.switches.find(sw => (sw.relayGpio || sw.gpio) === data.gpio);
                 if (switchInfo) {
-                  // Log the sensor operation
+                  // 1. Centralized logging for all switch events.
+                  // The source determines how we attribute the action.
+                  const source = data.source || 'unknown';
+                  const isFromBackend = source === 'backend';
+
                   await ActivityLog.create({
                     deviceId: device._id,
                     deviceName: device.name,
                     switchId: switchInfo._id,
                     switchName: switchInfo.name,
                     action: data.state ? 'on' : 'off',
-                    triggeredBy: 'pir',
+                    // If it's from the backend, it's a 'user' action, otherwise it's based on the source (e.g., 'pir', 'manual_switch')
+                    triggeredBy: isFromBackend ? 'user' : (source === 'motion' ? 'pir' : 'manual_switch'),
+                    // Use user details from the MQTT payload if available (for backend-initiated actions)
+                    userId: data.userId,
+                    userName: data.userName,
                     classroom: device.classroom,
                     location: device.location,
-                    ip: 'ESP32',
-                    userAgent: 'ESP32 Motion Sensor',
+                    // If not from the backend, the IP is the ESP32 itself. If from the backend, we don't have IP here, so mark as 'Web UI'.
+                    ip: isFromBackend ? 'Web UI' : 'ESP32',
+                    userAgent: isFromBackend ? 'Web Application' : (source === 'motion' ? 'ESP32 Motion Sensor' : 'ESP32 Manual Switch'),
                     context: {
-                      source: data.source || 'motion',
+                      source: source,
                       gpio: data.gpio,
                       physicalPin: data.physicalPin || null,
                       heap: data.heap || null,
                       telemetry: data,
-                      sensorTriggered: true
+                      sensorTriggered: source === 'motion'
                     }
                   });
 
-                  console.log(`[ACTIVITY] Logged sensor switch: ${device.name} - ${switchInfo.name} -> ${data.state ? 'ON' : 'OFF'} (source: ${data.source})`);
+                  console.log(`[ACTIVITY] Logged '${source}' switch event: ${device.name} - ${switchInfo.name} -> ${data.state ? 'ON' : 'OFF'} by ${data.userName || source}`);
 
-                  // Emit real-time update to frontend
+                  // 2. Ingest to NEW power tracking system
+                  try {
+                    // Build switch state map for all switches on this device
+                    const switchStateMap = {};
+                    for (const sw of device.switches) {
+                      switchStateMap[`relay${sw.gpio}`] = sw.state;
+                    }
+                    // Update the changed switch
+                    switchStateMap[`relay${data.gpio}`] = data.state;
+
+                    await telemetryIngestionService.ingestTelemetry({
+                      esp32_name: device.name,
+                      classroom: device.classroom,
+                      device_id: normalizedMac,
+                      timestamp: data.timestamp ? new Date(data.timestamp) : new Date(),
+                      // We don't have actual power measurement hardware, so leave these undefined
+                      // Backend will calculate based on time-based estimation
+                      power_w: undefined,
+                      energy_wh_total: undefined,
+                      switch_state: switchStateMap,
+                      status: 'online',
+                      mqtt_topic: topic,
+                      mqtt_payload: {
+                        type: 'switch_event',
+                        gpio: data.gpio,
+                        state: data.state,
+                        source: data.source,
+                        power_rating: switchInfo.powerRating || 0
+                      }
+                    });
+
+                    console.log(`[POWER_TRACKING] Ingested switch event: ${device.name} GPIO${data.gpio}=${data.state ? 'ON' : 'OFF'} (${switchInfo.powerRating || 0}W)`);
+                  } catch (powerError) {
+                    console.error('[POWER_TRACKING] Error ingesting switch event:', powerError.message);
+                  }
+
+                  // 3. Emit real-time update to frontend
                   if (global.io) {
                     try {
                       emitDeviceStateChanged(device, {
@@ -589,7 +640,7 @@ function emitDeviceStateChangedNow(device, meta = {}) {
 }
 
 // Function to send switch commands to ESP32 via MQTT
-function sendMqttSwitchCommand(macAddress, gpio, state) {
+function sendMqttSwitchCommand(macAddress, gpio, state, user = {}) {
   console.log(`[MQTT] sendMqttSwitchCommand called: MAC=${macAddress}, GPIO=${gpio}, state=${state}`);
   
   // Get device secret from database
@@ -608,9 +659,11 @@ function sendMqttSwitchCommand(macAddress, gpio, state) {
       gpio: gpio,           // Physical relay GPIO expected by firmware
       relayGpio: gpio,      // Duplicate field for backward compatibility
       state: state,
+      source: 'backend', // Explicitly set source to 'backend'
       // Include a userId so firmware will accept the command. Use default_user to
       // match the lightweight firmware auth check (it accepts 'default_user' or 'admin').
-      userId: process.env.MQTT_COMMAND_USER || 'default_user'
+      userId: user.id || process.env.MQTT_COMMAND_USER || 'default_user',
+      userName: user.name || 'System',
     };
     const message = JSON.stringify(command);
 
@@ -691,6 +744,80 @@ function sendDeviceConfigToESP32(macAddress) {
     console.error('[MQTT] Error in sendDeviceConfigToESP32:', error);
   }
 }
+
+// ========================================
+// NEW POWER SYSTEM: MQTT Message Routing
+// ========================================
+// Route new telemetry format to ingestion service
+mqttClient.on('message', async (topic, message) => {
+  try {
+    // Handle new power system telemetry: autovolt/<esp32_name>/telemetry
+    if (topic.startsWith('autovolt/') && topic.endsWith('/telemetry')) {
+      const parts = topic.split('/');
+      const esp32_name = parts[1];
+      
+      try {
+        const payload = JSON.parse(message.toString());
+        
+        // Only process if it has the new telemetry format
+        if (payload.energy_wh_total !== undefined || payload.power_w !== undefined) {
+          const telemetryIngestionService = require('./services/telemetryIngestionService');
+          
+          await telemetryIngestionService.ingestTelemetry({
+            esp32_name: payload.esp32_name || esp32_name,
+            classroom: payload.classroom,
+            device_id: payload.device_id || 'all_devices',
+            timestamp: payload.timestamp ? new Date(payload.timestamp) : new Date(),
+            power_w: payload.power_w,
+            energy_wh_total: payload.energy_wh_total,
+            switch_state: payload.switch_state || {},
+            status: payload.status || 'online',
+            mqtt_topic: topic,
+            mqtt_payload: payload
+          });
+          
+          console.log(`[NEW_POWER] Processed telemetry from ${esp32_name}: energy=${payload.energy_wh_total} Wh`);
+        }
+      } catch (error) {
+        console.error(`[NEW_POWER] Error processing telemetry from ${topic}:`, error);
+      }
+    }
+    
+    // Handle device status (LWT): autovolt/<esp32_name>/status
+    if (topic.startsWith('autovolt/') && topic.endsWith('/status')) {
+      const parts = topic.split('/');
+      const esp32_name = parts[1];
+      
+      try {
+        const payload = JSON.parse(message.toString());
+        console.log(`[NEW_POWER] Device status update: ${esp32_name} = ${payload.status}`);
+        
+        // TODO: Update device online/offline status in Device model
+        // This will be used by the reconciliation job to detect missing heartbeats
+        
+      } catch (error) {
+        console.error(`[NEW_POWER] Error processing status from ${topic}:`, error);
+      }
+    }
+    
+    // Handle heartbeat: autovolt/<esp32_name>/heartbeat
+    if (topic.startsWith('autovolt/') && topic.endsWith('/heartbeat')) {
+      const parts = topic.split('/');
+      const esp32_name = parts[1];
+      
+      try {
+        const payload = JSON.parse(message.toString());
+        console.log(`[NEW_POWER] Heartbeat from ${esp32_name}: heap=${payload.heap} bytes`);
+        
+      } catch (error) {
+        console.error(`[NEW_POWER] Error processing heartbeat from ${topic}:`, error);
+      }
+    }
+  } catch (error) {
+    // Ignore errors from non-JSON messages or unrelated topics
+  }
+});
+// ========================================
 
 // Make MQTT functions available globally (if needed elsewhere)
 global.sendMqttSwitchCommand = sendMqttSwitchCommand;
@@ -788,7 +915,7 @@ const { auth, authorize } = require('./middleware/auth');
 
 // Import services (only those actively used)
 const scheduleService = require('./services/scheduleService');
-// const contentSchedulerService = require('./services/contentSchedulerService'); // DISABLED - board functionality removed
+// const contentSchedulerService = require('./services/contentScheduler'); // DISABLED - board functionality removed
 const deviceMonitoringService = require('./services/deviceMonitoringService');
 const EnhancedLoggingService = require('./services/enhancedLoggingService');
 const ESP32CrashMonitor = require('./services/esp32CrashMonitor'); // Import ESP32 crash monitor service
@@ -856,7 +983,7 @@ const connectDB = async (retries = 5) => {
       logger.error('Metrics service initialization error:', metricsError);
     }
     
-    // Initialize power consumption tracker after DB connection
+    // Initialize power consumption tracker after DB connection (OLD SYSTEM - will be deprecated)
     logger.info('[DEBUG] About to initialize power tracker...');
     try {
       const powerTracker = require('./services/powerConsumptionTracker');
@@ -865,6 +992,51 @@ const connectDB = async (retries = 5) => {
     } catch (powerTrackerError) {
       logger.error('Power tracker initialization error:', powerTrackerError);
     }
+
+    // ========================================
+    // NEW POWER SYSTEM INITIALIZATION
+    // ========================================
+    logger.info('[NEW_POWER] Initializing new immutable power consumption system...');
+    
+    // Initialize telemetry ingestion service
+    try {
+      const telemetryIngestionService = require('./services/telemetryIngestionService');
+      await telemetryIngestionService.initialize();
+      logger.info('[NEW_POWER] Telemetry ingestion service initialized');
+    } catch (error) {
+      logger.error('[NEW_POWER] Telemetry ingestion service initialization error:', error);
+    }
+    
+    // Initialize ledger generation service
+    try {
+      const ledgerGenerationService = require('./services/ledgerGenerationService');
+      await ledgerGenerationService.initialize();
+      logger.info('[NEW_POWER] Ledger generation service initialized');
+    } catch (error) {
+      logger.error('[NEW_POWER] Ledger generation service initialization error:', error);
+    }
+    
+    // Initialize aggregation service
+    try {
+      const aggregationService = require('./services/aggregationService');
+      // await aggregationService.initialize();
+      logger.info('[NEW_POWER] Aggregation service initialized');
+    } catch (error) {
+      logger.error('[NEW_POWER] Aggregation service initialization error:', error);
+    }
+    
+    // Schedule reconciliation job (runs nightly at 2 AM IST)
+    try {
+      const reconciliationJob = require('./jobs/reconciliationJob');
+      const cron = require('node-cron');
+      reconciliationJob.schedule(cron);
+      logger.info('[NEW_POWER] Reconciliation job scheduled (2:00 AM IST daily)');
+    } catch (error) {
+      logger.error('[NEW_POWER] Reconciliation job scheduling error:', error);
+    }
+    
+    logger.info('[NEW_POWER] New power system initialization complete');
+    // ========================================
 
     // Initialize RSS service after DB connection
     logger.info('[DEBUG] About to initialize RSS service...');
@@ -1350,7 +1522,7 @@ apiRouter.use('/role-permissions', apiLimiter, require('./routes/rolePermissions
 apiRouter.use('/power-analytics', apiLimiter, require('./routes/powerAnalytics'));
 apiRouter.use('/power-settings', apiLimiter, require('./routes/powerSettings'));
 apiRouter.use('/device-analytics', apiLimiter, require('./routes/deviceAnalytics'));
-apiRouter.use('/energy-consumption', apiLimiter, require('./routes/energyConsumption')); // Real-time energy tracking API
+// apiRouter.use('/energy-consumption', apiLimiter, require('./routes/energyConsumption')); // DISABLED - Old power system, use /power-analytics instead
 // apiRouter.use('/notices', apiLimiter, require('./routes/notices')); // DISABLED - notice board functionality removed
 // apiRouter.use('/content', apiLimiter, require('./routes/contentScheduler')); // DISABLED - board functionality removed
 // apiRouter.use('/integrations', apiLimiter, require('./routes/integrations')); // DISABLED - integrations route not yet implemented

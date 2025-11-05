@@ -1,0 +1,856 @@
+[
+  {
+    "_id": "6901c2b65b7c29d2444ff955",
+    "date": "2025-10-28T18:30:00.000Z",
+    "deviceId": "68f105138c2d8ff0512a89de",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "IOT_Lab",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0.0006265,
+        "energyKwh": 0.0000895,
+        "runtimeHours": 0.0011933333333333334,
+        "switchCount": 1
+      },
+      "light": {
+        "cost": 0.4767451888888889,
+        "energyKwh": 0.06810645555555556,
+        "runtimeHours": 1.7026613888888888,
+        "switchCount": 5
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-10-29T07:31:02.200Z",
+    "day": 29,
+    "deviceName": "IOT_Lab",
+    "electricityRate": 7,
+    "lastUpdated": "2025-10-29T07:31:11.533Z",
+    "location": "Block B Floor 0",
+    "macAddress": "88:57:21:78:93:d0",
+    "month": 10,
+    "onlineDuration": 0,
+    "totalCost": 0.47737168888888887,
+    "totalEnergyKwh": 0.06819595555555556,
+    "totalRuntimeHours": 1.7038547222222222,
+    "updatedAt": "2025-10-29T07:31:11.533Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "6902d73f7162a113794555a5",
+    "date": "2025-10-29T18:30:00.000Z",
+    "deviceId": "68f105138c2d8ff0512a89de",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "IOT_Lab",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0.0012992291666666666,
+        "energyKwh": 0.00018560416666666665,
+        "runtimeHours": 0.0024747222222222223,
+        "switchCount": 2
+      },
+      "light": {
+        "cost": 0.23391892222222221,
+        "energyKwh": 0.033416988888888895,
+        "runtimeHours": 0.8354247222222222,
+        "switchCount": 15
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-10-30T03:10:55.229Z",
+    "day": 30,
+    "deviceName": "IOT_Lab",
+    "electricityRate": 7,
+    "lastUpdated": "2025-10-30T08:02:47.276Z",
+    "location": "Block B Floor 0",
+    "macAddress": "88:57:21:78:93:d0",
+    "month": 10,
+    "onlineDuration": 0,
+    "totalCost": 0.2352181513888889,
+    "totalEnergyKwh": 0.03360259305555557,
+    "totalRuntimeHours": 0.8378994444444444,
+    "updatedAt": "2025-10-30T08:02:47.276Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "6902d73f7162a113794555a4",
+    "deviceId": "68f105138c2d8ff0512a89de",
+    "date": "2025-10-29T18:30:00.000Z",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "IOT_Lab",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "light": {
+        "cost": 0.0004080222222222222,
+        "energyKwh": 0.00005828888888888889,
+        "runtimeHours": 0.0014572222222222222,
+        "switchCount": 1
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-10-30T03:10:55.226Z",
+    "day": 30,
+    "deviceName": "IOT_Lab",
+    "electricityRate": 7,
+    "lastUpdated": "2025-10-30T03:10:55.226Z",
+    "location": "Block B Floor 0",
+    "macAddress": "88:57:21:78:93:d0",
+    "month": 10,
+    "onlineDuration": 0,
+    "totalCost": 0.0004080222222222222,
+    "totalEnergyKwh": 0.00005828888888888889,
+    "totalRuntimeHours": 0.0014572222222222222,
+    "updatedAt": "2025-10-30T03:10:55.226Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "6902d74a7162a113794555a6",
+    "date": "2025-10-29T18:30:00.000Z",
+    "deviceId": "68faf55f5f1fffd51654ffa9",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "Computer Lab",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "light": {
+        "cost": 0.42904726666666665,
+        "energyKwh": 0.06129246666666666,
+        "runtimeHours": 1.5323116666666667,
+        "switchCount": 12
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-10-30T03:11:06.024Z",
+    "day": 30,
+    "deviceName": "Computer_Lab",
+    "electricityRate": 7,
+    "lastUpdated": "2025-10-30T10:13:26.988Z",
+    "location": "Block B Floor 0",
+    "macAddress": "80:f3:da:65:47:38",
+    "month": 10,
+    "onlineDuration": 0,
+    "totalCost": 0.42904726666666665,
+    "totalEnergyKwh": 0.06129246666666666,
+    "totalRuntimeHours": 1.5323116666666667,
+    "updatedAt": "2025-10-30T10:13:26.988Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "69030dd67162a113794555a7",
+    "deviceId": "690049671982a66a2d2de14c",
+    "date": "2025-10-29T18:30:00.000Z",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0.014080208333333333,
+        "energyKwh": 0.0020114583333333334,
+        "runtimeHours": 0.026819444444444444,
+        "switchCount": 4
+      },
+      "light": {
+        "cost": 0.020938477777777784,
+        "energyKwh": 0.0029912111111111113,
+        "runtimeHours": 0.07478027777777778,
+        "switchCount": 12
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-10-30T07:03:50.972Z",
+    "day": 30,
+    "deviceName": "test",
+    "electricityRate": 7,
+    "lastUpdated": "2025-10-30T07:21:16.815Z",
+    "location": "Block A Floor 0",
+    "macAddress": "80:f3:da:64:c6:28",
+    "month": 10,
+    "onlineDuration": 0,
+    "totalCost": 0.035018686111111114,
+    "totalEnergyKwh": 0.005002669444444445,
+    "totalRuntimeHours": 0.10159972222222223,
+    "updatedAt": "2025-10-30T07:21:16.816Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "69030dd67162a113794555a8",
+    "date": "2025-10-29T18:30:00.000Z",
+    "deviceId": "690049671982a66a2d2de14c",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0.0003940416666666666,
+        "energyKwh": 0.00005629166666666666,
+        "runtimeHours": 0.0007505555555555555,
+        "switchCount": 1
+      },
+      "light": {
+        "cost": 0.00020999999999999998,
+        "energyKwh": 0.000029999999999999997,
+        "runtimeHours": 0.00075,
+        "switchCount": 1
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-10-30T07:03:50.973Z",
+    "day": 30,
+    "deviceName": "test",
+    "electricityRate": 7,
+    "lastUpdated": "2025-10-30T07:03:50.975Z",
+    "location": "Block A Floor 0",
+    "macAddress": "80:f3:da:64:c6:28",
+    "month": 10,
+    "onlineDuration": 0,
+    "totalCost": 0.0006040416666666666,
+    "totalEnergyKwh": 0.00008629166666666666,
+    "totalRuntimeHours": 0.0015005555555555555,
+    "updatedAt": "2025-10-30T07:03:50.975Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "69030dd67162a113794555a9",
+    "deviceId": "690049671982a66a2d2de14c",
+    "date": "2025-10-29T18:30:00.000Z",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "light": {
+        "cost": 0.00021007777777777776,
+        "energyKwh": 0.00003001111111111111,
+        "runtimeHours": 0.0007502777777777778,
+        "switchCount": 1
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-10-30T07:03:50.974Z",
+    "day": 30,
+    "deviceName": "test",
+    "electricityRate": 7,
+    "lastUpdated": "2025-10-30T07:03:50.974Z",
+    "location": "Block A Floor 0",
+    "macAddress": "80:f3:da:64:c6:28",
+    "month": 10,
+    "onlineDuration": 0,
+    "totalCost": 0.00021007777777777776,
+    "totalEnergyKwh": 0.00003001111111111111,
+    "totalRuntimeHours": 0.0007502777777777778,
+    "updatedAt": "2025-10-30T07:03:50.974Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "690448287162a113794555aa",
+    "date": "2025-10-30T18:30:00.000Z",
+    "deviceId": "690049671982a66a2d2de14c",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0.02500516666666667,
+        "energyKwh": 0.003572166666666666,
+        "runtimeHours": 0.047628888888888894,
+        "switchCount": 22
+      },
+      "light": {
+        "cost": 0.048865911111111104,
+        "energyKwh": 0.006980844444444446,
+        "runtimeHours": 0.1745211111111111,
+        "switchCount": 70
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0.002670111111111111,
+        "energyKwh": 0.00038144444444444445,
+        "runtimeHours": 0.0019072222222222223,
+        "switchCount": 1
+      }
+    },
+    "createdAt": "2025-10-31T05:24:56.450Z",
+    "day": 31,
+    "deviceName": "test",
+    "electricityRate": 7,
+    "lastUpdated": "2025-10-31T10:06:41.779Z",
+    "location": "Block A Floor 0",
+    "macAddress": "80:f3:da:64:c6:28",
+    "month": 10,
+    "onlineDuration": 0,
+    "totalCost": 0.0765411888888889,
+    "totalEnergyKwh": 0.010934455555555557,
+    "totalRuntimeHours": 0.22405722222222219,
+    "updatedAt": "2025-10-31T10:06:41.780Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "690470237162a113794555ab",
+    "deviceId": "68f786f52368660109068593",
+    "date": "2025-10-30T18:30:00.000Z",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "MCA",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0.00027664583333333333,
+        "energyKwh": 0.000039520833333333336,
+        "runtimeHours": 0.0005269444444444445,
+        "switchCount": 1
+      },
+      "light": {
+        "cost": 0.002420522222222222,
+        "energyKwh": 0.00034578888888888885,
+        "runtimeHours": 0.008644722222222224,
+        "switchCount": 14
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-10-31T08:15:31.339Z",
+    "day": 31,
+    "deviceName": "LH_D_23",
+    "electricityRate": 7,
+    "lastUpdated": "2025-10-31T10:44:56.487Z",
+    "location": "Block D Floor 2",
+    "macAddress": "84:1f:e8:68:a2:8c",
+    "month": 10,
+    "onlineDuration": 0,
+    "totalCost": 0.002697168055555555,
+    "totalEnergyKwh": 0.0003853097222222222,
+    "totalRuntimeHours": 0.009171666666666667,
+    "updatedAt": "2025-10-31T10:44:56.487Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "69099ce1774807d9acd5d86e",
+    "deviceId": "68faf55f5f1fffd51654ffa9",
+    "date": "2025-11-03T18:30:00.000Z",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "Computer Lab",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "light": {
+        "cost": 0.12601804444444445,
+        "energyKwh": 0.01800257777777778,
+        "runtimeHours": 0.45006444444444443,
+        "switchCount": 1
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-11-04T06:27:45.280Z",
+    "day": 4,
+    "deviceName": "Computer_Lab",
+    "electricityRate": 7,
+    "lastUpdated": "2025-11-04T06:27:45.280Z",
+    "location": "Block B Floor 0",
+    "macAddress": "80:f3:da:65:47:38",
+    "month": 11,
+    "onlineDuration": 0,
+    "totalCost": 0.12601804444444445,
+    "totalEnergyKwh": 0.01800257777777778,
+    "totalRuntimeHours": 0.45006444444444443,
+    "updatedAt": "2025-11-04T06:27:45.280Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "69099ce1774807d9acd5d86d",
+    "date": "2025-11-03T18:30:00.000Z",
+    "deviceId": "68faf55f5f1fffd51654ffa9",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "Computer Lab",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "light": {
+        "cost": 0.1260182,
+        "energyKwh": 0.0180026,
+        "runtimeHours": 0.450065,
+        "switchCount": 1
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-11-04T06:27:45.279Z",
+    "day": 4,
+    "deviceName": "Computer_Lab",
+    "electricityRate": 7,
+    "lastUpdated": "2025-11-04T06:27:45.279Z",
+    "location": "Block B Floor 0",
+    "macAddress": "80:f3:da:65:47:38",
+    "month": 11,
+    "onlineDuration": 0,
+    "totalCost": 0.1260182,
+    "totalEnergyKwh": 0.0180026,
+    "totalRuntimeHours": 0.450065,
+    "updatedAt": "2025-11-04T06:27:45.279Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "69099ce1774807d9acd5d86c",
+    "deviceId": "68faf55f5f1fffd51654ffa9",
+    "date": "2025-11-03T18:30:00.000Z",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "Computer Lab",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "light": {
+        "cost": 0.12601749999999998,
+        "energyKwh": 0.018002499999999998,
+        "runtimeHours": 0.4500625,
+        "switchCount": 1
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-11-04T06:27:45.272Z",
+    "day": 4,
+    "deviceName": "Computer_Lab",
+    "electricityRate": 7,
+    "lastUpdated": "2025-11-04T06:27:45.272Z",
+    "location": "Block B Floor 0",
+    "macAddress": "80:f3:da:65:47:38",
+    "month": 11,
+    "onlineDuration": 0,
+    "totalCost": 0.12601749999999998,
+    "totalEnergyKwh": 0.018002499999999998,
+    "totalRuntimeHours": 0.4500625,
+    "updatedAt": "2025-11-04T06:27:45.272Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "69099ce1774807d9acd5d86f",
+    "date": "2025-11-03T18:30:00.000Z",
+    "deviceId": "68faf55f5f1fffd51654ffa9",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "Computer Lab",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "light": {
+        "cost": 0.12601835555555557,
+        "energyKwh": 0.018002622222222223,
+        "runtimeHours": 0.45006555555555555,
+        "switchCount": 1
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-11-04T06:27:45.275Z",
+    "day": 4,
+    "deviceName": "Computer_Lab",
+    "electricityRate": 7,
+    "lastUpdated": "2025-11-04T06:27:45.275Z",
+    "location": "Block B Floor 0",
+    "macAddress": "80:f3:da:65:47:38",
+    "month": 11,
+    "onlineDuration": 0,
+    "totalCost": 0.12601835555555557,
+    "totalEnergyKwh": 0.018002622222222223,
+    "totalRuntimeHours": 0.45006555555555555,
+    "updatedAt": "2025-11-04T06:27:45.275Z",
+    "wasOnline": true,
+    "year": 2025
+  },
+  {
+    "_id": "690ac255774807d9acd5d870",
+    "date": "2025-11-04T18:30:00.000Z",
+    "deviceId": "68f105138c2d8ff0512a89de",
+    "__v": 0,
+    "calculationSource": "realtime",
+    "classroom": "IOT_Lab",
+    "consumptionByType": {
+      "ac": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "fan": {
+        "cost": 0.08191895833333332,
+        "energyKwh": 0.011702708333333332,
+        "runtimeHours": 0.1560361111111111,
+        "switchCount": 1
+      },
+      "light": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "other": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "outlet": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      },
+      "projector": {
+        "cost": 0,
+        "energyKwh": 0,
+        "runtimeHours": 0,
+        "switchCount": 0
+      }
+    },
+    "createdAt": "2025-11-05T03:19:49.168Z",
+    "day": 5,
+    "deviceName": "IOT_Lab",
+    "electricityRate": 7,
+    "lastUpdated": "2025-11-05T03:19:49.168Z",
+    "location": "Block B Floor 0",
+    "macAddress": "88:57:21:78:93:d0",
+    "month": 11,
+    "onlineDuration": 0,
+    "totalCost": 0.08191895833333332,
+    "totalEnergyKwh": 0.011702708333333332,
+    "totalRuntimeHours": 0.1560361111111111,
+    "updatedAt": "2025-11-05T03:19:49.168Z",
+    "wasOnline": true,
+    "year": 2025
+  }
+]

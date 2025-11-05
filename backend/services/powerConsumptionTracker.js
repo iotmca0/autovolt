@@ -1,9 +1,14 @@
 const ActivityLog = require('../models/ActivityLog');
 const Device = require('../models/Device');
-const EnergyConsumption = require('../models/EnergyConsumption');
+const DeviceConsumptionLedger = require('../models/DeviceConsumptionLedger'); // NEW SYSTEM
+const EnergyConsumption = require('../models/EnergyConsumption'); // OLD SYSTEM (keeping for compatibility)
 const { logger } = require('../middleware/logger');
 const fs = require('fs').promises;
 const path = require('path');
+
+// Import PowerSettings for centralized configuration management
+const PowerSettings = require('../models/PowerSettings');
+
 
 /**
  * Power Consumption Tracker Service
@@ -21,404 +26,282 @@ class PowerConsumptionTracker {
     this.electricityRate = 7.5; // Default: ₹7.5 per kWh (loaded from settings)
     this.devicePowerSettings = {}; // Power consumption by device type
     this.isInitialized = false;
+    this.settingsTimestamp = null; // To track when settings were last loaded
   }
 
   /**
    * Initialize the tracker - load power settings
    */
   async initialize() {
-    if (this.isInitialized) return;
+    if (this.isInitialized) {
+      logger.debug('[PowerTracker] Already initialized. Skipping.');
+      return;
+    }
     
     try {
       await this.loadPowerSettings();
       logger.info('[PowerTracker] Initialized successfully');
       this.isInitialized = true;
       
-      // Reload settings every 30 seconds
-      setInterval(() => this.loadPowerSettings(), 30000);
+      // Reload settings periodically
+      setInterval(() => this.loadPowerSettings({ force: false }), 60000); // Check for updates every minute
     } catch (error) {
       logger.error('[PowerTracker] Initialization error:', error);
+      this.isInitialized = false; // Ensure we can re-initialize if it fails
     }
   }
 
   /**
-   * Load power settings from file
+   * Load power settings from the database
    */
-  async loadPowerSettings() {
+  async loadPowerSettings({ force = false } = {}) {
     try {
-      const settingsPath = path.join(__dirname, '..', 'data', 'powerSettings.json');
-      const data = await fs.readFile(settingsPath, 'utf8');
-      const settings = JSON.parse(data);
-      
-      if (settings.electricityPrice) {
-        this.electricityRate = settings.electricityPrice;
+      const settings = await PowerSettings.getSingleton();
+
+      // If settings haven't changed since last load, skip update
+      if (!force && this.settingsTimestamp && settings.updatedAt <= this.settingsTimestamp) {
+        return;
       }
+
+      this.electricityRate = settings.electricityPrice;
+      this.devicePowerSettings = settings.deviceTypes.reduce((acc, deviceType) => {
+        acc[deviceType.type.toLowerCase()] = deviceType.powerConsumption;
+        return acc;
+      }, {});
       
-      if (settings.deviceTypes && Array.isArray(settings.deviceTypes)) {
-        settings.deviceTypes.forEach(deviceType => {
-          if (deviceType.type && typeof deviceType.powerConsumption === 'number') {
-            this.devicePowerSettings[deviceType.type] = deviceType.powerConsumption;
-          }
-        });
-      }
-      
-      logger.debug('[PowerTracker] Loaded settings:', {
-        electricityRate: this.electricityRate,
-        deviceTypes: Object.keys(this.devicePowerSettings).length
-      });
+      this.settingsTimestamp = settings.updatedAt;
+
+      logger.info(`[PowerTracker] Power settings loaded/reloaded. Electricity Rate: ₹${this.electricityRate}/kWh`);
+      logger.debug('[PowerTracker] Loaded device power settings:', this.devicePowerSettings);
+
     } catch (error) {
-      logger.warn('[PowerTracker] Using default power settings:', error.message);
+      logger.error('[PowerTracker] Failed to load power settings from DB:', error);
+      // Fallback to default settings if DB load fails
+      this.loadDefaultPowerSettings();
     }
+  }
+
+  /**
+   * Fallback to default power settings if DB is unavailable
+   */
+  loadDefaultPowerSettings() {
+    logger.warn('[PowerTracker] Using default power settings as a fallback.');
+    this.electricityRate = 7.5;
+    this.devicePowerSettings = {
+      'light': 40,
+      'fan': 75,
+      'projector': 200,
+      'ac': 1500,
+      'outlet': 100,
+      'default': 50
+    };
   }
 
   /**
    * Get power consumption for a switch type
    */
   getPowerConsumption(switchName, switchType) {
-    const name = (switchName || '').toLowerCase();
     const type = (switchType || '').toLowerCase();
-    
-    // Priority lookup: type > name keywords
+    const name = (switchName || '').toLowerCase();
+
+    // 1. Exact match on switch type (e.g., 'light', 'fan')
     if (this.devicePowerSettings[type]) {
       return this.devicePowerSettings[type];
     }
-    
-    // Fallback: lookup by keywords in name
-    const powerTable = {
-      light: 20, bulb: 20, lamp: 25, led: 15,
-      fan: 75, ceiling: 80, exhaust: 60,
-      projector: 250, display: 150, monitor: 30,
-      ac: 1200, air: 1200, conditioner: 1200,
-      outlet: 100, socket: 100
+
+    // 2. Keyword matching for common names if type is generic (e.g., 'relay')
+    const keywords = {
+      'light': 'light', 'led': 'light', 'bulb': 'light',
+      'fan': 'fan',
+      'projector': 'projector',
+      'ac': 'ac', 'air conditioner': 'ac',
+      'outlet': 'outlet', 'socket': 'outlet'
     };
-    
-    for (const [keyword, power] of Object.entries(powerTable)) {
-      if (name.includes(keyword) || type.includes(keyword)) {
-        return power;
+
+    for (const [keyword, deviceType] of Object.entries(keywords)) {
+      if (name.includes(keyword)) {
+        const power = this.devicePowerSettings[deviceType];
+        if (power) return power;
       }
     }
     
-    return 50; // Default: 50W
+    // 3. Fallback to a default value if no match is found
+    const defaultPower = this.devicePowerSettings['default'] || 50;
+    logger.warn(`[PowerTracker] No power setting for '${type}' or name '${name}'. Using default ${defaultPower}W.`);
+    return defaultPower;
   }
 
   /**
-   * Track switch turned ON
+   * Track when a switch is turned ON
    * Only tracks if ESP32 device is ONLINE
    */
-  async trackSwitchOn(data) {
-    const {
-      deviceId,
-      deviceName,
-      macAddress,
-      switchId,
-      switchName,
-      switchType,
-      classroom,
-      location,
-      userId,
-      userName,
-      triggeredBy = 'user'
-    } = data;
+  async trackSwitchOn(switchId, options = {}) {
+    if (!this.isInitialized) await this.initialize();
+
+    const { switchName, switchType, deviceId, classroomId, deviceName } = options;
     
+    // Ensure device is online before tracking
     try {
-      // Check if device is online
-      const device = await Device.findById(deviceId).lean();
-      if (!device) {
-        logger.warn('[PowerTracker] Device not found:', deviceId);
-        return null;
+      const device = await Device.findById(deviceId);
+      if (!device || device.status !== 'online') {
+        logger.warn(`[PowerTracker] Device ${deviceName || deviceId} is offline. Not tracking switch ON for ${switchName}.`);
+        return;
       }
-      
-      if (device.status !== 'online') {
-        logger.warn('[PowerTracker] Device offline, not tracking:', deviceName);
-        // Still create activity log but mark as offline
-        await this.createActivityLog({
-          ...data,
-          action: switchType === 'manual' ? 'manual_on' : 'on',
-          powerConsumption: 0,
-          deviceStatus: { isOnline: false }
-        });
-        return null;
-      }
-      
-      // Get power consumption for this switch
-      const powerWatts = this.getPowerConsumption(switchName, switchType);
-      
-      // Record start time and power
-      const trackingData = {
-        startTime: new Date(),
-        powerWatts,
-        switchType: switchType || 'other',
-        deviceId,
-        deviceName,
-        macAddress,
-        classroom,
-        location,
-        switchName
-      };
-      
-      this.activeSwitches.set(switchId, trackingData);
-      
-      // Create activity log
-      await this.createActivityLog({
-        deviceId,
-        deviceName,
-        switchId,
-        switchName,
-        action: triggeredBy === 'manual_switch' ? 'manual_on' : 'on',
-        triggeredBy,
-        userId,
-        userName,
-        classroom,
-        location,
-        powerConsumption: powerWatts,
-        switchType,
-        macAddress,
-        deviceStatus: { isOnline: true }
-      });
-      
-      logger.info(`[PowerTracker] Started tracking ${switchName} (${powerWatts}W) on ${deviceName}`);
-      
-      return trackingData;
     } catch (error) {
-      logger.error('[PowerTracker] Error tracking switch ON:', error);
-      return null;
+      logger.error(`[PowerTracker] Error checking device status for ${deviceId}:`, error);
+      return; // Do not track if device status is uncertain
     }
+
+    if (this.activeSwitches.has(switchId)) {
+      logger.warn(`[PowerTracker] Switch ${switchId} is already ON. Ignoring duplicate ON event.`);
+      return;
+    }
+
+    // Get power consumption for this switch
+    const power = this.getPowerConsumption(switchName, switchType);
+
+    this.activeSwitches.set(switchId, {
+      startTime: Date.now(),
+      power, // Power in Watts
+      type: switchType,
+      deviceId,
+      classroomId,
+      deviceName,
+      switchName
+    });
+
+    logger.info(`[PowerTracker] Switch ON: ${switchName} (${switchId}) on device ${deviceName}. Power: ${power}W.`);
+    logger.debug('[PowerTracker] Active switches:', this.activeSwitches.size);
   }
 
   /**
-   * Track switch turned OFF
+   * Track when a switch is turned OFF
    * Calculates and stores consumption from ON to OFF
    */
-  async trackSwitchOff(data) {
-    const {
-      deviceId,
-      deviceName,
-      macAddress,
-      switchId,
-      switchName,
-      switchType,
-      classroom,
-      location,
-      userId,
-      userName,
-      triggeredBy = 'user'
-    } = data;
+  async trackSwitchOff(switchId) {
+    if (!this.activeSwitches.has(switchId)) {
+      logger.warn(`[PowerTracker] Switch OFF event for untracked or already stopped switch: ${switchId}`);
+      return null;
+    }
+
+    const switchData = this.activeSwitches.get(switchId);
+    const endTime = Date.now();
+    const startTime = switchData.startTime;
     
-    try {
-      // Get tracking data
-      const trackingData = this.activeSwitches.get(switchId);
-      
-      if (!trackingData) {
-        logger.warn('[PowerTracker] Switch was not being tracked:', switchName);
-        // Still create activity log
-        await this.createActivityLog({
-          ...data,
-          action: triggeredBy === 'manual_switch' ? 'manual_off' : 'off',
-          powerConsumption: 0
-        });
-        return null;
-      }
-      
-      // Calculate runtime and consumption
-      const endTime = new Date();
-      const runtimeMs = endTime - trackingData.startTime;
-      const runtimeHours = runtimeMs / (1000 * 60 * 60);
-      const energyKwh = (trackingData.powerWatts * runtimeHours) / 1000;
-      const cost = energyKwh * this.electricityRate;
-      
-      // Remove from active tracking
+    // Duration in hours
+    const durationMs = endTime - startTime;
+    if (durationMs <= 0) {
+      logger.warn(`[PowerTracker] Invalid duration (${durationMs}ms) for switch ${switchId}. Skipping.`);
       this.activeSwitches.delete(switchId);
-      
-      // Store consumption data INCREMENTALLY
-      await EnergyConsumption.incrementConsumption({
-        deviceId: trackingData.deviceId,
-        deviceName: trackingData.deviceName,
-        macAddress: trackingData.macAddress,
-        classroom: trackingData.classroom,
-        location: trackingData.location,
-        date: trackingData.startTime, // Use start date for accounting
-        switchType: trackingData.switchType,
-        energyKwh,
-        runtimeHours,
-        cost,
-        electricityRate: this.electricityRate,
-        wasOnline: true
-      });
-      
-      // Create activity log
-      await this.createActivityLog({
-        deviceId,
-        deviceName,
-        switchId,
-        switchName,
-        action: triggeredBy === 'manual_switch' ? 'manual_off' : 'off',
-        triggeredBy,
-        userId,
-        userName,
-        classroom,
-        location,
-        powerConsumption: trackingData.powerWatts,
-        switchType: trackingData.switchType,
-        macAddress,
-        duration: runtimeMs / 1000, // seconds
-        context: {
-          energyKwh,
-          cost,
-          runtimeHours
+      return null;
+    }
+    const durationHours = durationMs / (1000 * 60 * 60);
+
+    const { power, type, deviceId, classroomId, deviceName, switchName } = switchData;
+
+    // Energy in kWh
+    const energyKwh = (power * durationHours) / 1000;
+    
+    // Cost in local currency
+    const cost = energyKwh * this.electricityRate;
+
+    this.activeSwitches.delete(switchId);
+
+    logger.info(`[PowerTracker] Switch OFF: ${switchName} (${switchId}) on ${deviceName}. Duration: ${durationHours.toFixed(3)}h, Energy: ${energyKwh.toFixed(5)} kWh, Cost: ₹${cost.toFixed(4)}`);
+    logger.debug('[PowerTracker] Active switches:', this.activeSwitches.size);
+
+    // Save to NEW SYSTEM: DeviceConsumptionLedger
+    try {
+      const ledgerEntry = new DeviceConsumptionLedger({
+        device_id: deviceId.toString(),
+        esp32_name: deviceName,
+        classroom: classroomId,
+        switch_id: switchId,
+        switch_name: switchName,
+        switch_type: type,
+        start_ts: new Date(startTime),
+        end_ts: new Date(endTime),
+        switch_on_duration_seconds: durationMs / 1000,
+        delta_wh: energyKwh * 1000, // Convert kWh to Wh
+        power_w: power,
+        cost_calculation: {
+          cost_per_kwh: this.electricityRate,
+          cost_inr: cost
+        },
+        quality: {
+          confidence: 'high', // Direct tracking = high confidence
+          data_source: 'power_tracker',
+          notes: 'Real-time switch tracking'
         }
       });
+      await ledgerEntry.save();
       
-      logger.info(`[PowerTracker] Recorded ${energyKwh.toFixed(4)}kWh (₹${cost.toFixed(2)}) for ${switchName} on ${deviceName}`);
+      logger.info(`[PowerTracker] ✅ Saved to DeviceConsumptionLedger: ${energyKwh.toFixed(5)} kWh`);
+      
+      // Trigger real-time aggregation for today
+      this.triggerAggregation(classroomId).catch(err => {
+        logger.error('[PowerTracker] Aggregation trigger failed:', err);
+      });
       
       return {
+        deviceId,
+        switchId,
+        durationHours,
         energyKwh,
-        cost,
-        runtimeHours,
-        powerWatts: trackingData.powerWatts
+        cost
       };
     } catch (error) {
-      logger.error('[PowerTracker] Error tracking switch OFF:', error);
+      logger.error(`[PowerTracker] Failed to save consumption data for switch ${switchId}:`, error);
       return null;
     }
   }
 
   /**
-   * Handle device going offline
-   * Stops tracking all switches and records consumption up to offline time
+   * Handle device going offline - stop tracking all its switches
    */
-  async handleDeviceOffline(deviceId, macAddress) {
-    try {
-      logger.info(`[PowerTracker] Device going offline: ${macAddress}`);
-      
-      const device = await Device.findById(deviceId).lean();
-      if (!device) return;
-      
-      // Find all active switches for this device
-      const deviceSwitches = Array.from(this.activeSwitches.entries())
-        .filter(([_, data]) => data.deviceId.toString() === deviceId.toString());
-      
-      // Process each active switch
-      for (const [switchId, trackingData] of deviceSwitches) {
-        const offlineTime = new Date();
-        const runtimeMs = offlineTime - trackingData.startTime;
-        const runtimeHours = runtimeMs / (1000 * 60 * 60);
-        const energyKwh = (trackingData.powerWatts * runtimeHours) / 1000;
-        const cost = energyKwh * this.electricityRate;
-        
-        // Store consumption up to offline time
-        await EnergyConsumption.incrementConsumption({
-          deviceId: trackingData.deviceId,
-          deviceName: trackingData.deviceName,
-          macAddress: trackingData.macAddress,
-          classroom: trackingData.classroom,
-          location: trackingData.location,
-          date: trackingData.startTime,
-          switchType: trackingData.switchType,
-          energyKwh,
-          runtimeHours,
-          cost,
-          electricityRate: this.electricityRate,
-          wasOnline: true
-        });
-        
-        // Create activity log for offline
-        await this.createActivityLog({
-          deviceId,
-          deviceName: device.name,
-          switchId,
-          switchName: trackingData.switchName,
-          action: 'off',
-          triggeredBy: 'system',
-          classroom: device.classroom,
-          location: device.location,
-          powerConsumption: trackingData.powerWatts,
-          switchType: trackingData.switchType,
-          macAddress,
-          duration: runtimeMs / 1000,
-          deviceStatus: { isOnline: false },
-          context: {
-            reason: 'device_offline',
-            energyKwh,
-            cost,
-            runtimeHours
-          }
-        });
-        
-        // Remove from active tracking
-        this.activeSwitches.delete(switchId);
-        
-        logger.info(`[PowerTracker] Stopped tracking ${trackingData.switchName} due to offline (${energyKwh.toFixed(4)}kWh recorded)`);
+  handleDeviceOffline(deviceId) {
+    logger.warn(`[PowerTracker] Device ${deviceId} went offline. Stopping tracking for all its active switches.`);
+    let stoppedCount = 0;
+    for (const [switchId, switchData] of this.activeSwitches.entries()) {
+      if (switchData.deviceId === deviceId) {
+        this.trackSwitchOff(switchId);
+        stoppedCount++;
       }
-    } catch (error) {
-      logger.error('[PowerTracker] Error handling device offline:', error);
     }
+    logger.info(`[PowerTracker] Stopped tracking for ${stoppedCount} switches on offline device ${deviceId}.`);
   }
 
   /**
-   * Create activity log entry
+   * Get the number of currently active (ON) switches
    */
-  async createActivityLog(data) {
+  getActiveSwitchCount() {
+    return this.activeSwitches.size;
+  }
+
+  /**
+   * Trigger aggregation for today (called after ledger entry)
+   * Runs in background to avoid blocking switch operations
+   */
+  async triggerAggregation(classroom) {
     try {
-      await ActivityLog.create({
-        deviceId: data.deviceId,
-        deviceName: data.deviceName,
-        switchId: data.switchId,
-        switchName: data.switchName,
-        action: data.action,
-        triggeredBy: data.triggeredBy || 'user',
-        userId: data.userId,
-        userName: data.userName,
-        classroom: data.classroom,
-        location: data.location,
-        timestamp: new Date(),
-        powerConsumption: data.powerConsumption,
-        switchType: data.switchType,
-        macAddress: data.macAddress,
-        duration: data.duration,
-        deviceStatus: data.deviceStatus,
-        context: data.context || {}
-      });
+      const aggregationService = require('./aggregationService');
+      const today = new Date();
+      
+      logger.debug(`[PowerTracker] Triggering aggregation for ${classroom || 'all'} on ${today.toDateString()}`);
+      
+      // Run aggregation in background
+      await aggregationService.aggregateDaily(today, classroom);
+      
+      logger.info(`[PowerTracker] ✅ Aggregation completed for ${classroom || 'all'}`);
     } catch (error) {
-      logger.error('[PowerTracker] Error creating activity log:', error);
+      // Don't throw - aggregation failures shouldn't break switch tracking
+      logger.error('[PowerTracker] Aggregation failed:', error.message);
     }
-  }
-
-  /**
-   * Get consumption report by classroom
-   */
-  async getClassroomReport(classroom, startDate, endDate) {
-    return await EnergyConsumption.getClassroomConsumption(classroom, startDate, endDate);
-  }
-
-  /**
-   * Get consumption report by ESP32 device
-   */
-  async getDeviceReport(deviceId, startDate, endDate) {
-    return await EnergyConsumption.getDeviceConsumption(deviceId, startDate, endDate);
-  }
-
-  /**
-   * Get currently active switches
-   */
-  getActiveSwitches() {
-    const active = [];
-    for (const [switchId, data] of this.activeSwitches.entries()) {
-      const runtime = (new Date() - data.startTime) / 1000; // seconds
-      active.push({
-        switchId,
-        switchName: data.switchName,
-        deviceName: data.deviceName,
-        classroom: data.classroom,
-        powerWatts: data.powerWatts,
-        runtimeSeconds: runtime,
-        estimatedCost: ((data.powerWatts * runtime) / (3600 * 1000)) * this.electricityRate
-      });
-    }
-    return active;
   }
 }
 
 // Export singleton instance
+// The tracker is initialized in the main server file after DB connection
 const powerTracker = new PowerConsumptionTracker();
 
 module.exports = powerTracker;

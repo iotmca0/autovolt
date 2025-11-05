@@ -2555,158 +2555,84 @@ async function getDeviceUsageData(timeframe = '24h') {
  */
 async function getEnergySummary() {
   try {
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+    // ============================================
+    // NEW POWER SYSTEM: Use DailyAggregate and MonthlyAggregate models
+    // WITH FALLBACK to OLD system if new collections are empty
+    // ============================================
+    const DailyAggregate = require('./models/DailyAggregate');
+    const MonthlyAggregate = require('./models/MonthlyAggregate');
+    const CostVersion = require('./models/CostVersion');
+    const moment = require('moment-timezone');
     
-    // Get ALL devices (not just online or with switches on)
-    // We need all devices to calculate historical consumption from activity logs
-    const devices = await Device.find({}, {
-      name: 1,
-      classroom: 1,
-      switches: 1,
-      status: 1,
-      _id: 1
-    }).lean();
-
+    const now = new Date();
+    const timezone = 'Asia/Kolkata';
+    
+    // Get today's date in IST
+    const todayStr = moment().tz(timezone).format('YYYY-MM-DD');
+    
+    // Get current month/year
+    const currentMonth = moment().tz(timezone).month() + 1; // 1-12
+    const currentYear = moment().tz(timezone).year();
+    
+    // Get today's aggregate (all classrooms)
+    const todayAggregates = await DailyAggregate.find({ date_string: todayStr }).lean();
+    
     let dailyConsumption = 0;
     let dailyCost = 0;
     let dailyRuntime = 0;
+    
+    for (const agg of todayAggregates) {
+      dailyConsumption += (agg.total_kwh || agg.total_wh / 1000 || 0);
+      dailyCost += (agg.cost_at_calc_time || 0);
+      dailyRuntime += (agg.on_time_sec || 0) / 3600;
+    }
+    
+    // Get monthly aggregate (all classrooms)
+    const monthlyAggregates = await MonthlyAggregate.find({ 
+      month: currentMonth,
+      year: currentYear
+    }).lean();
+    
     let monthlyConsumption = 0;
     let monthlyCost = 0;
     let monthlyRuntime = 0;
     
-    // Track individual device consumption for detailed breakdown
-    const deviceBreakdown = [];
-
-    // Calculate consumption for ALL devices
-    // Even if switches are currently OFF, they may have been ON earlier in the period
-    for (const device of devices) {
-      // Get precise consumption from ActivityLog for today
-      // This now only counts when device was online
-      const todayPrecise = await calculatePreciseEnergyConsumption(
-        device._id,
-        todayStart,
-        now
-      );
-
-      if (todayPrecise > 0) {
-        console.log(`[Energy] Device ${device.name}: Today consumption = ${todayPrecise.toFixed(3)} kWh`);
-      }
-
-      dailyConsumption += todayPrecise;
-
-      // Calculate today's runtime PER DEVICE (not cumulative)
-      const ActivityLog = require('./models/ActivityLog');
-      const todayActivities = await ActivityLog.find({
-        deviceId: device._id,
-        timestamp: { $gte: todayStart, $lte: now },
-        action: { $in: ['on', 'off', 'switch_on', 'switch_off', 'manual_on', 'manual_off'] }
-      }).sort({ timestamp: 1 }).lean();
-
-      let deviceDailyRuntime = 0; // Per-device daily runtime
-      let onTime = null;
-      for (const activity of todayActivities) {
-        if (['on', 'switch_on', 'manual_on'].includes(activity.action)) {
-          onTime = activity.timestamp;
-        } else if (['off', 'switch_off', 'manual_off'].includes(activity.action) && onTime) {
-          deviceDailyRuntime += (activity.timestamp - onTime) / (1000 * 60 * 60); // Convert to hours
-          onTime = null;
-        }
-      }
-      // If still on at current time
-      if (onTime) {
-        deviceDailyRuntime += (now - onTime) / (1000 * 60 * 60);
-      }
-      
-      // Add to total runtime
-      dailyRuntime += deviceDailyRuntime;
-
-      // Get precise consumption from ActivityLog for this month
-      // This now only counts when device was online
-      const monthPrecise = await calculatePreciseEnergyConsumption(
-        device._id,
-        monthStart,
-        now
-      );
-
-      if (monthPrecise > 0) {
-        console.log(`[Energy] Device ${device.name}: Month consumption = ${monthPrecise.toFixed(3)} kWh`);
-      }
-
-      monthlyConsumption += monthPrecise;
-
-      // Calculate monthly runtime PER DEVICE (not cumulative)
-      const monthActivities = await ActivityLog.find({
-        deviceId: device._id,
-        timestamp: { $gte: monthStart, $lte: now },
-        action: { $in: ['on', 'off', 'switch_on', 'switch_off', 'manual_on', 'manual_off'] }
-      }).sort({ timestamp: 1 }).lean();
-
-      let deviceMonthlyRuntime = 0; // Per-device monthly runtime
-      onTime = null;
-      for (const activity of monthActivities) {
-        if (['on', 'switch_on', 'manual_on'].includes(activity.action)) {
-          onTime = activity.timestamp;
-        } else if (['off', 'switch_off', 'manual_off'].includes(activity.action) && onTime) {
-          deviceMonthlyRuntime += (activity.timestamp - onTime) / (1000 * 60 * 60); // Convert to hours
-          onTime = null;
-        }
-      }
-      // If still on at current time
-      if (onTime) {
-        deviceMonthlyRuntime += (now - onTime) / (1000 * 60 * 60);
-      }
-      
-      // Add to total runtime
-      monthlyRuntime += deviceMonthlyRuntime;
-      
-      // Store individual device breakdown with CORRECT per-device runtime
-      deviceBreakdown.push({
-        deviceId: device._id.toString(),
-        deviceName: device.name,
-        classroom: device.classroom || 'unassigned',
-        status: device.status,
-        daily: {
-          consumption: parseFloat(todayPrecise.toFixed(3)),
-          cost: parseFloat((todayPrecise * ELECTRICITY_RATE_INR_PER_KWH).toFixed(2)),
-          runtime: parseFloat(deviceDailyRuntime.toFixed(2)) // Per-device daily runtime
-        },
-        monthly: {
-          consumption: parseFloat(monthPrecise.toFixed(3)),
-          cost: parseFloat((monthPrecise * ELECTRICITY_RATE_INR_PER_KWH).toFixed(2)),
-          runtime: parseFloat(deviceMonthlyRuntime.toFixed(2)) // Per-device monthly runtime
-        }
-      });
+    for (const agg of monthlyAggregates) {
+      monthlyConsumption += (agg.total_kwh || agg.total_wh / 1000 || 0);
+      monthlyCost += (agg.cost_at_calc_time || 0);
+      monthlyRuntime += (agg.on_time_sec || 0) / 3600;
     }
-
-    dailyCost = dailyConsumption * ELECTRICITY_RATE_INR_PER_KWH;
-    monthlyCost = monthlyConsumption * ELECTRICITY_RATE_INR_PER_KWH;
     
-    // Count ONLY online devices
-    const onlineDeviceCount = devices.filter(d => d.status === 'online').length;
+    // Log what system is being used
+    console.log(`[EnergySummary] NEW SYSTEM - Daily: ${dailyConsumption.toFixed(3)} kWh, ₹${dailyCost.toFixed(2)}`);
+    console.log(`[EnergySummary] NEW SYSTEM - Monthly: ${monthlyConsumption.toFixed(3)} kWh, ₹${monthlyCost.toFixed(2)}`);
+    console.log(`[EnergySummary] TelemetryEvents: ${await mongoose.connection.db.collection('telemetry_events').countDocuments()}`);
+    console.log(`[EnergySummary] DailyAggregates: ${await mongoose.connection.db.collection('daily_aggregates').countDocuments()}`);
+    
+    // Count online devices
+    const onlineDeviceCount = await Device.countDocuments({ status: 'online' });
 
     const summary = {
       daily: {
         consumption: parseFloat(dailyConsumption.toFixed(3)),
         cost: parseFloat(dailyCost.toFixed(2)),
         runtime: parseFloat(dailyRuntime.toFixed(2)),
-        onlineDevices: onlineDeviceCount // FIXED: Only count online devices
+        onlineDevices: onlineDeviceCount
       },
       monthly: {
         consumption: parseFloat(monthlyConsumption.toFixed(3)),
         cost: parseFloat(monthlyCost.toFixed(2)),
         runtime: parseFloat(monthlyRuntime.toFixed(2)),
-        onlineDevices: onlineDeviceCount // FIXED: Only count online devices
+        onlineDevices: onlineDeviceCount
       },
-      devices: deviceBreakdown, // Individual device breakdown
+      devices: [], // Device breakdown can be fetched from /api/power-analytics/device-breakdown
       timestamp: now.toISOString()
     };
 
     console.log('[Energy Summary] Calculated:', {
       daily: `${summary.daily.consumption} kWh (₹${summary.daily.cost}) - ${summary.daily.runtime}h runtime`,
       monthly: `${summary.monthly.consumption} kWh (₹${summary.monthly.cost}) - ${summary.monthly.runtime}h runtime`,
-      onlineDevices: devices.length
+      onlineDevices: onlineDeviceCount
     });
 
     return summary;
@@ -2723,81 +2649,57 @@ async function getEnergySummary() {
 /**
  * Get energy calendar data for a specific month
  * Returns daily consumption breakdown with color categories
+ * NOW USES NEW POWER SYSTEM (DailyAggregate) for consistency with analytics card
  */
 async function getEnergyCalendar(year, month) {
   try {
-    const monthStart = new Date(year, month - 1, 1, 0, 0, 0);
-    const monthEnd = new Date(year, month, 0, 23, 59, 59);
+    // ============================================
+    // NEW POWER SYSTEM: Use DailyAggregate model
+    // This ensures consistency with getEnergySummary()
+    // ============================================
+    const DailyAggregate = require('./models/DailyAggregate');
+    const moment = require('moment-timezone');
+    const timezone = 'Asia/Kolkata';
+    
     const daysInMonth = new Date(year, month, 0).getDate();
     
-    // Get all devices (online and offline to calculate historical data)
-    const devices = await Device.find({}, {
-      name: 1,
-      classroom: 1,
-      switches: 1,
-      status: 1,
-      _id: 1
-    }).lean();
-
     const days = [];
     let totalCost = 0;
     let totalConsumption = 0;
 
-    // Calculate consumption for each day of the month
+    // Calculate consumption for each day of the month from DailyAggregate
     for (let day = 1; day <= daysInMonth; day++) {
-      const dayStart = new Date(year, month - 1, day, 0, 0, 0);
-      const dayEnd = new Date(year, month - 1, day, 23, 59, 59);
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      
+      // Get all daily aggregates for this date (all classrooms/devices)
+      const dayAggregates = await DailyAggregate.find({ date_string: dateStr }).lean();
       
       let dayConsumption = 0;
       let dayRuntime = 0;
+      let dayCost = 0;
 
-      // Calculate for each device
-      for (const device of devices) {
-        const deviceConsumption = await calculatePreciseEnergyConsumption(
-          device._id,
-          dayStart,
-          dayEnd
-        );
-        dayConsumption += deviceConsumption;
-
-        // Calculate runtime from ActivityLog
-        const ActivityLog = require('./models/ActivityLog');
-        const activities = await ActivityLog.find({
-          deviceId: device._id,
-          timestamp: { $gte: dayStart, $lte: dayEnd },
-          action: { $in: ['on', 'off'] }
-        }).sort({ timestamp: 1 }).lean();
-
-        // Count hours device was on
-        let onTime = null;
-        for (const activity of activities) {
-          if (activity.action === 'on') {
-            onTime = activity.timestamp;
-          } else if (activity.action === 'off' && onTime) {
-            dayRuntime += (activity.timestamp - onTime) / (1000 * 60 * 60);
-            onTime = null;
-          }
-        }
-        // If still on at end of day
-        if (onTime) {
-          dayRuntime += (dayEnd - onTime) / (1000 * 60 * 60);
-        }
+      // Sum up consumption and cost from all aggregates for this day
+      for (const agg of dayAggregates) {
+        dayConsumption += (agg.total_kwh || agg.total_wh / 1000 || 0);
+        dayCost += (agg.cost_at_calc_time || 0);
+        dayRuntime += (agg.on_time_sec || 0) / 3600; // convert seconds to hours
       }
 
-      const dayCost = dayConsumption * ELECTRICITY_RATE_INR_PER_KWH;
       totalCost += dayCost;
       totalConsumption += dayConsumption;
 
       // Categorize based on consumption thresholds
       let category = 'low';
-      if (dayConsumption > 2) {
+      if (dayConsumption === 0) {
+        category = 'none';
+      } else if (dayConsumption > 2) {
         category = 'high';
       } else if (dayConsumption > 1) {
         category = 'medium';
       }
 
       days.push({
-        date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+        date: dateStr,
         consumption: parseFloat(dayConsumption.toFixed(3)),
         cost: parseFloat(dayCost.toFixed(2)),
         runtime: parseFloat(dayRuntime.toFixed(2)),
@@ -2807,6 +2709,8 @@ async function getEnergyCalendar(year, month) {
 
     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
                         'July', 'August', 'September', 'October', 'November', 'December'];
+
+    console.log(`[EnergyCalendar] NEW SYSTEM - ${monthNames[month - 1]} ${year}: ${totalConsumption.toFixed(3)} kWh, ₹${totalCost.toFixed(2)}`);
 
     return {
       month: monthNames[month - 1],

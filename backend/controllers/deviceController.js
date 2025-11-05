@@ -1,4 +1,3 @@
-
 const Device = require('../models/Device');
 const gpioUtils = require('../utils/gpioUtils');
 const { logger } = require('../middleware/logger');
@@ -610,10 +609,11 @@ const updateDevice = async (req, res) => {
         deviceId: device.id,
         switches: device.switches.map((sw, idx) => ({
           order: idx,
-          gpio: sw.gpio,
-          relayGpio: sw.relayGpio,
+          gpio: sw.relayGpio ?? sw.gpio,
+          relayGpio: sw.relayGpio ?? sw.gpio,
           name: sw.name,
-          manualSwitchGpio: sw.manualSwitchGpio,
+          manualGpio: sw.manualSwitchGpio ?? sw.manualGpio,
+          manualSwitchGpio: sw.manualSwitchGpio ?? sw.manualGpio,
           manualSwitchEnabled: sw.manualSwitchEnabled,
           manualMode: sw.manualMode,
           manualActiveLow: sw.manualActiveLow,
@@ -647,13 +647,26 @@ const updateDevice = async (req, res) => {
   }
 };
 
+const lastToggleTimestamps = {};
+
 const toggleSwitch = async (req, res) => {
+  const { deviceId, switchId } = req.params;
+  const { state, triggeredBy = 'user' } = req.body;
+
+  const uniqueSwitchIdentifier = `${deviceId}-${switchId}`;
+  const requestTime = Date.now();
+  const lastToggle = lastToggleTimestamps[uniqueSwitchIdentifier] || 0;
+
+  if (requestTime - lastToggle < 2000) { // 2-second debounce window
+    console.log(`[DEBOUNCE] Ignoring duplicate toggle request for ${uniqueSwitchIdentifier}`);
+    return res.status(429).json({ message: 'Duplicate request, please wait a moment.' });
+  }
+
+  lastToggleTimestamps[uniqueSwitchIdentifier] = requestTime;
+
   const startTime = Date.now();
   let dbQueryTime = 0, dbUpdateTime = 0, activityLogTime = 0, wsSendTime = 0;
   try {
-    const { deviceId, switchId } = req.params;
-    const { state, triggeredBy = 'user' } = req.body;
-
     const device = await Device.findById(deviceId);
     dbQueryTime = Date.now() - startTime;
     if (!device) {
@@ -706,10 +719,10 @@ const toggleSwitch = async (req, res) => {
 
     // Compute desired state based on current snapshot, but persist atomically
     const desiredState = state !== undefined ? state : !device.switches[switchIndex].state;
-    const now = new Date();
+    const updateTime = new Date();
     const updated = await Device.findOneAndUpdate(
       { _id: deviceId, 'switches._id': switchId },
-      { $set: { 'switches.$.state': desiredState, 'switches.$.lastStateChange': now, lastModifiedBy: req.user.id } },
+      { $set: { 'switches.$.state': desiredState, 'switches.$.lastStateChange': updateTime, lastModifiedBy: req.user.id } },
       { new: true }
     );
     const dbUpdateTime = Date.now() - startTime - dbQueryTime;
@@ -738,47 +751,30 @@ const toggleSwitch = async (req, res) => {
       updatedSwitch?.type || 'relay'
     );
     
-    await ActivityLog.create({
-      deviceId: updated._id,
-      deviceName: updated.name,
-      switchId: switchId,
-      switchName: updatedSwitch?.name,
-      action: logAction,
-      triggeredBy: logTriggeredBy,
-      userId: logUserId,
-      userName: logUserName,
-      classroom: updated.classroom,
-      location: updated.location,
-      ip: logIp,
-      userAgent: logUserAgent,
-      powerConsumption: switchPowerConsumption, // Store power at event time
-      switchType: updatedSwitch?.type || 'other',
-      macAddress: updated.macAddress
-    });
+    // ActivityLog creation is now handled by the MQTT switch_event handler in server.js
+    // to ensure a single, authoritative log entry for every action.
+    // The user info is passed via the MQTT command payload.
     const activityLogTime = Date.now() - activityLogStart;
     
     // Track power consumption in real-time
     try {
-      const trackingData = {
-        deviceId: updated._id,
-        deviceName: updated.name,
-        macAddress: updated.macAddress,
-        switchId: switchId,
+      const trackingOptions = {
         switchName: updatedSwitch?.name,
         switchType: updatedSwitch?.type || 'other',
-        classroom: updated.classroom,
-        location: updated.location,
+        deviceId: updated._id,
+        classroomId: updated.classroom,
+        deviceName: updated.name,
         userId: logUserId,
         userName: logUserName,
         triggeredBy: logTriggeredBy
       };
-      
+
       if (desiredState) {
         // Switch turned ON - start tracking
-        await powerTracker.trackSwitchOn(trackingData);
+        await powerTracker.trackSwitchOn(switchId, trackingOptions);
       } else {
         // Switch turned OFF - stop tracking and record consumption
-        await powerTracker.trackSwitchOff(trackingData);
+        await powerTracker.trackSwitchOff(switchId);
       }
     } catch (trackingError) {
       logger.error('[toggleSwitch] Power tracking error:', trackingError);
@@ -803,7 +799,7 @@ const toggleSwitch = async (req, res) => {
     try {
       const gpio = (updatedSwitch && (updatedSwitch.relayGpio || updatedSwitch.gpio)) || (device.switches[switchIndex].relayGpio || device.switches[switchIndex].gpio);
       if (global.sendMqttSwitchCommand) {
-        global.sendMqttSwitchCommand(updated.macAddress, gpio, desiredState);
+        global.sendMqttSwitchCommand(updated.macAddress, gpio, desiredState, { id: req.user.id, name: req.user.name });
         console.log(`[MQTT] Published switch command for device ${updated.macAddress}: gpio=${gpio}, state=${desiredState}`);
       } else {
         console.warn('[MQTT] sendMqttSwitchCommand not available');
