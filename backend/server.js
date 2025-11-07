@@ -721,7 +721,13 @@ function sendDeviceConfigToESP32(macAddress) {
             dualMode: device.pirSensorType === 'both',
             secondaryGpio: 35,  // Fixed: GPIO 35 for secondary sensor
             secondaryType: 'rcwl-0516',  // Always microwave for secondary
-            detectionLogic: device.motionDetectionLogic || 'and'
+            detectionLogic: device.motionDetectionLogic || 'and',
+            // PIR Detection Schedule
+            scheduleEnabled: device.pirDetectionSchedule?.enabled || false,
+            activeStartTime: device.pirDetectionSchedule?.activeStartTime || '18:00',
+            activeEndTime: device.pirDetectionSchedule?.activeEndTime || '22:00',
+            activeDays: device.pirDetectionSchedule?.daysOfWeek || [],
+            timezone: 'IST-5:30'
           }
         };
 

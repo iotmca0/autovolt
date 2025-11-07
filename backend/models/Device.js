@@ -9,6 +9,13 @@ const switchSchema = new mongoose.Schema({
     required: [true, 'Switch name is required'],
     trim: true
   },
+  voiceAliases: {
+    type: [String],
+    default: [],
+    set: (aliases) => Array.isArray(aliases)
+      ? aliases.map((alias) => alias?.trim()).filter(Boolean)
+      : []
+  },
   gpio: {
     type: Number,
     required: false, // Make GPIO optional for flexible device configuration
@@ -153,6 +160,13 @@ const deviceSchema = new mongoose.Schema({
     trim: true,
     optional: true
   },
+  voiceAliases: {
+    type: [String],
+    default: [],
+    set: (aliases) => Array.isArray(aliases)
+      ? aliases.map((alias) => alias?.trim()).filter(Boolean)
+      : []
+  },
   status: {
     type: String,
     enum: ['online', 'offline', 'error'],
@@ -166,6 +180,14 @@ const deviceSchema = new mongoose.Schema({
   lastSeen: {
     type: Date,
     default: Date.now
+  },
+  onlineSince: {
+    type: Date,
+    default: null
+  },
+  offlineSince: {
+    type: Date,
+    default: null
   },
   switches: {
     type: [switchSchema],
@@ -211,6 +233,29 @@ const deviceSchema = new mongoose.Schema({
     type: Number,
     min: 0,
     default: 30 // 30 seconds default
+  },
+  // PIR Detection Schedule - Time-based control
+  pirDetectionSchedule: {
+    enabled: {
+      type: Boolean,
+      default: false
+    },
+    activeStartTime: {
+      type: String,
+      match: [/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Time must be in HH:MM format (24-hour)'],
+      default: '18:00' // Detection starts at 6 PM by default
+    },
+    activeEndTime: {
+      type: String,
+      match: [/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Time must be in HH:MM format (24-hour)'],
+      default: '22:00' // Detection ends at 10 PM by default
+    },
+    daysOfWeek: [{
+      type: Number,
+      min: 0,
+      max: 6,
+      enum: [0, 1, 2, 3, 4, 5, 6] // 0 = Sunday, 1 = Monday, etc.
+    }]
   },
   // Dual Sensor Configuration
   // Note: GPIO pins are FIXED (GPIO 34 for PIR, GPIO 35 for Microwave)
@@ -369,6 +414,32 @@ deviceSchema.pre('save', function(next) {
     }
   }
 
+  // Handle status change timestamps
+  // Only auto-set timestamps if they weren't explicitly set by the caller
+  if (this.isModified('status')) {
+    const now = new Date();
+    
+    if (this.status === 'online') {
+      // Only set onlineSince if it wasn't already set by the caller
+      if (!this.onlineSince) {
+        this.onlineSince = now;
+      }
+      // Clear offlineSince when coming online (unless explicitly set)
+      if (!this.isModified('offlineSince')) {
+        this.offlineSince = null;
+      }
+    } else if (this.status === 'offline') {
+      // Only set offlineSince if it wasn't already set by the caller
+      if (!this.offlineSince) {
+        this.offlineSince = now;
+      }
+      // Clear onlineSince when going offline (unless explicitly set)
+      if (!this.isModified('onlineSince')) {
+        this.onlineSince = null;
+      }
+    }
+  }
+
   const switchNames = new Set();
   for (const sw of this.switches) {
     if (switchNames.has(sw.name)) {
@@ -379,6 +450,85 @@ deviceSchema.pre('save', function(next) {
   }
   next();
 });
+
+function normalizeStatusUpdate(update) {
+  if (!update) {
+    return { nextStatus: undefined, update };
+  }
+
+  let nextStatus;
+  if (Object.prototype.hasOwnProperty.call(update, 'status')) {
+    nextStatus = update.status;
+    update.$set = { ...(update.$set || {}), status: update.status };
+    delete update.status;
+  } else if (update.$set && Object.prototype.hasOwnProperty.call(update.$set, 'status')) {
+    nextStatus = update.$set.status;
+  } else if (update.$setOnInsert && Object.prototype.hasOwnProperty.call(update.$setOnInsert, 'status')) {
+    nextStatus = update.$setOnInsert.status;
+  }
+
+  return { nextStatus, update };
+}
+
+async function applyStatusTimestamps(next) {
+  const update = this.getUpdate();
+  if (!update) {
+    return next();
+  }
+
+  const { nextStatus } = normalizeStatusUpdate(update);
+  if (!nextStatus || (nextStatus !== 'online' && nextStatus !== 'offline')) {
+    return next();
+  }
+
+  const set = update.$set || (update.$set = {});
+  const unset = update.$unset || (update.$unset = {});
+
+  let existingDevice;
+  try {
+    existingDevice = await this.model.findOne(this.getQuery()).select('status onlineSince offlineSince');
+  } catch (err) {
+    return next(err);
+  }
+
+  const now = new Date();
+
+  if (nextStatus === 'online') {
+    if (!existingDevice || existingDevice.status !== 'online') {
+      if (set.onlineSince === undefined) {
+        set.onlineSince = now;
+      }
+    } else if (!existingDevice.onlineSince && set.onlineSince === undefined) {
+      set.onlineSince = now;
+    }
+    if (set.offlineSince === undefined) {
+      set.offlineSince = null;
+    }
+    if (Object.prototype.hasOwnProperty.call(unset, 'offlineSince')) {
+      delete unset.offlineSince;
+    }
+  } else if (nextStatus === 'offline') {
+    if (!existingDevice || existingDevice.status !== 'offline') {
+      if (set.offlineSince === undefined) {
+        set.offlineSince = now;
+      }
+    } else if (!existingDevice.offlineSince && set.offlineSince === undefined) {
+      set.offlineSince = now;
+    }
+    if (set.onlineSince === undefined) {
+      set.onlineSince = null;
+    }
+    if (Object.prototype.hasOwnProperty.call(unset, 'onlineSince')) {
+      delete unset.onlineSince;
+    }
+  }
+
+  this.setUpdate(update);
+  return next();
+}
+
+deviceSchema.pre('findOneAndUpdate', applyStatusTimestamps);
+deviceSchema.pre('updateOne', applyStatusTimestamps);
 
 // ============================================
 // Database Indexes for Performance Optimization

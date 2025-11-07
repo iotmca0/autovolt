@@ -38,12 +38,21 @@ class ESP32SocketService {
                     this.deviceSockets.set(macAddress, socket);
                     socket.deviceData = { macAddress, deviceId: device._id };
 
-                    // Update device status
-                    await Device.findByIdAndUpdate(device._id, {
-                        status: 'online',
+                    // Update device status - only set onlineSince if status is changing
+                    const updateFields = {
                         lastSeen: new Date(),
                         ipAddress: socket.handshake.address
-                    });
+                    };
+                    
+                    if (device.status !== 'online') {
+                        updateFields.status = 'online';
+                        updateFields.onlineSince = new Date();
+                        updateFields.offlineSince = null;
+                    } else {
+                        updateFields.status = 'online';
+                    }
+
+                    await Device.findByIdAndUpdate(device._id, updateFields);
 
                     console.log(`ESP32 device ${macAddress} authenticated and connected`);
                     socket.emit('authenticated');
@@ -214,10 +223,14 @@ class ESP32SocketService {
         // Handle disconnection
         socket.on('disconnect', async () => {
             try {
-                // Update device status
+                const now = new Date();
+                
+                // Update device status - set offlineSince to current time when socket disconnects
                 await Device.findByIdAndUpdate(device._id, {
                     status: 'offline',
-                    lastSeen: new Date()
+                    lastSeen: now,
+                    offlineSince: now,
+                    onlineSince: null
                 });
 
                 // Remove from connected devices

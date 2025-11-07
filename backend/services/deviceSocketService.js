@@ -42,12 +42,21 @@ class DeviceSocketService {
                     socket.deviceData = { macAddress, deviceId: device._id };
                     socket.join(device._id.toString());
 
-                    // Update device status
-                    await Device.findByIdAndUpdate(device._id, {
-                        status: 'online',
+                    // Update device status - only set onlineSince if status is changing
+                    const updateFields = {
                         lastSeen: new Date(),
                         ipAddress: socket.handshake.address
-                    });
+                    };
+                    
+                    if (device.status !== 'online') {
+                        updateFields.status = 'online';
+                        updateFields.onlineSince = new Date();
+                        updateFields.offlineSince = null;
+                    } else {
+                        updateFields.status = 'online';
+                    }
+
+                    await Device.findByIdAndUpdate(device._id, updateFields);
 
                     // Log activity
                     await ActivityLog.create({
@@ -96,9 +105,12 @@ class DeviceSocketService {
 
                         const device = await Device.findOne({ macAddress });
                         if (device) {
+                            const now = new Date();
                             await Device.findByIdAndUpdate(device._id, {
                                 status: 'offline',
-                                lastSeen: new Date()
+                                lastSeen: now,
+                                offlineSince: now,
+                                onlineSince: null
                             });
 
                             await ActivityLog.create({

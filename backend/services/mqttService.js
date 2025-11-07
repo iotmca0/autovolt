@@ -181,8 +181,22 @@ class MQTTService {
 
       // Update device status
       const previousStatus = device.status;
-      device.status = 'online';
-      device.lastSeen = new Date();
+      const now = new Date();
+      
+      // Update lastSeen on every heartbeat
+      device.lastSeen = now;
+      
+      // Only update onlineSince when device transitions from offline to online
+      if (previousStatus !== 'online') {
+        device.status = 'online';
+        device.onlineSince = now;
+        device.offlineSince = null;
+        logger.info(`[MQTT] Device ${device.macAddress} came online at ${now.toISOString()}`);
+      } else {
+        // Already online, just update lastSeen (don't touch onlineSince)
+        device.status = 'online';
+        logger.debug(`[MQTT] Device ${device.macAddress} heartbeat - online since ${device.onlineSince?.toISOString()}`);
+      }
 
       const stateChanges = [];
 

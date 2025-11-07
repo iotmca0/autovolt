@@ -19,13 +19,14 @@ const activityLogSchema = new mongoose.Schema({
       'device_online', 'device_offline', 'device_connected', 'device_disconnected',
       'bulk_on', 'bulk_off',
       'status_check', 'heartbeat',
+      'voice_command',
       'conflict_resolved'
     ],
     required: true
   },
   triggeredBy: {
     type: String,
-    enum: ['user', 'schedule', 'pir', 'master', 'system', 'manual_switch', 'monitoring'],
+    enum: ['user', 'schedule', 'pir', 'master', 'system', 'manual_switch', 'monitoring', 'voice_assistant'],
     required: true
   },
   userId: {

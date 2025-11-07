@@ -129,6 +129,7 @@ const createDevice = async (req, res) => {
       pirSensitivity = 50,
       pirDetectionRange = 5,
       motionDetectionLogic = 'and',
+      pirDetectionSchedule,
       switches = []
     } = req.body;
 
@@ -234,6 +235,7 @@ const createDevice = async (req, res) => {
       pirSensitivity,
       pirDetectionRange,
       motionDetectionLogic,
+      pirDetectionSchedule,
       switches: switches.map(sw => ({
         name: sw.name,
         gpio: sw.gpio,
@@ -398,6 +400,7 @@ const updateDevice = async (req, res) => {
       pirSensitivity,
       pirDetectionRange,
       motionDetectionLogic,
+      pirDetectionSchedule,
       switches,
       status,
       lastSeen
@@ -462,6 +465,7 @@ const updateDevice = async (req, res) => {
     device.pirSensitivity = pirSensitivity !== undefined ? pirSensitivity : device.pirSensitivity;
     device.pirDetectionRange = pirDetectionRange !== undefined ? pirDetectionRange : device.pirDetectionRange;
     device.motionDetectionLogic = motionDetectionLogic || device.motionDetectionLogic;
+    device.pirDetectionSchedule = pirDetectionSchedule !== undefined ? pirDetectionSchedule : device.pirDetectionSchedule;
     device.status = status || device.status;
     device.lastSeen = lastSeen ? new Date(lastSeen) : device.lastSeen;
 

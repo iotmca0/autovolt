@@ -353,6 +353,13 @@ exports.getDeviceConfig = async (req, res) => {
       pirEnabled: device.pirEnabled,
       pirGpio: device.pirGpio,
       pirAutoOffDelay: device.pirAutoOffDelay,
+      // PIR Detection Schedule
+      pirDetectionSchedule: device.pirDetectionSchedule || {
+        enabled: false,
+        activeStartTime: '18:00',
+        activeEndTime: '22:00',
+        daysOfWeek: []
+      },
       switches: device.switches.map(sw => ({
         id: sw._id,
         name: sw.name,

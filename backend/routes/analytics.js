@@ -29,33 +29,8 @@ router.get('/dashboard', async (req, res) => {
   }
 });
 
-// Get energy consumption data
-router.get('/energy/:timeframe', 
-  param('timeframe').isIn(['1h', '24h', '7d', '30d', '90d']).withMessage('Invalid timeframe'),
-  handleValidationErrors,
-  async (req, res) => {
-  try {
-    const { timeframe } = req.params;
-    const energyData = await metricsService.getEnergyData(timeframe);
-    res.json(energyData);
-  } catch (error) {
-    console.error('Error getting energy data:', error);
-    res.status(500).json({ error: 'Failed to get energy data' });
-  }
-});
-
-// Get energy consumption summary (daily and monthly totals, excluding offline devices)
-router.get('/energy-summary', async (req, res) => {
-  try {
-    const summary = await metricsService.getEnergySummary();
-    res.json(summary);
-  } catch (error) {
-    console.error('Error getting energy summary:', error);
-    res.status(500).json({ error: 'Failed to get energy summary' });
-  }
-});
-
 // Get monthly energy consumption chart data (last 6 months)
+// NOTE: This route MUST be defined BEFORE /energy/:timeframe to avoid matching conflicts
 router.get('/energy/monthly-chart', async (req, res) => {
   try {
     const Device = require('../models/Device');
@@ -208,6 +183,32 @@ router.get('/energy/monthly-chart', async (req, res) => {
   } catch (error) {
     console.error('[Monthly Chart] Error:', error);
     res.status(500).json({ error: 'Failed to get monthly chart data' });
+  }
+});
+
+// Get energy consumption data (with timeframe parameter)
+router.get('/energy/:timeframe', 
+  param('timeframe').isIn(['1h', '24h', '7d', '30d', '90d']).withMessage('Invalid timeframe'),
+  handleValidationErrors,
+  async (req, res) => {
+  try {
+    const { timeframe } = req.params;
+    const energyData = await metricsService.getEnergyData(timeframe);
+    res.json(energyData);
+  } catch (error) {
+    console.error('Error getting energy data:', error);
+    res.status(500).json({ error: 'Failed to get energy data' });
+  }
+});
+
+// Get energy consumption summary (daily and monthly totals, excluding offline devices)
+router.get('/energy-summary', async (req, res) => {
+  try {
+    const summary = await metricsService.getEnergySummary();
+    res.json(summary);
+  } catch (error) {
+    console.error('Error getting energy summary:', error);
+    res.status(500).json({ error: 'Failed to get energy summary' });
   }
 });
 
@@ -476,8 +477,9 @@ router.get('/energy-history', async (req, res) => {
 router.get('/device-uptime', async (req, res) => {
   try {
     const { date, deviceId } = req.query;
-    const ActivityLog = require('../models/ActivityLog');
-    const Device = require('../models/Device');
+  const ActivityLog = require('../models/ActivityLog');
+  const Device = require('../models/Device');
+  const Settings = require('../models/Settings');
     
     // Parse date or use today
     const targetDate = date ? new Date(date) : new Date();
@@ -495,204 +497,241 @@ router.get('/device-uptime', async (req, res) => {
       devices = await Device.find({});
     }
     
+    const settings = await Settings.findOne({}, { 'security.deviceOfflineThreshold': 1 }).lean();
+    let offlineThresholdSeconds = settings?.security?.deviceOfflineThreshold;
+    if (!offlineThresholdSeconds || offlineThresholdSeconds <= 0) {
+      offlineThresholdSeconds = 120; // Default 2 minutes
+    }
+    const offlineThresholdMs = offlineThresholdSeconds * 1000;
+
     const uptimeStats = [];
     
+    const statusActions = ['device_online', 'device_offline', 'device_connected', 'device_disconnected'];
+    const onlineActions = ['device_online', 'device_connected'];
+    const offlineActions = ['device_offline', 'device_disconnected'];
+
+    const formatDuration = (seconds) => {
+      if (!seconds || seconds <= 0) return '0s';
+      if (seconds < 60) return `${Math.floor(seconds)}s`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+      if (seconds < 86400) {
+        const hours = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        return `${hours}h ${mins}m`;
+      }
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      return `${days}d ${hours}h`;
+    };
+    
     for (const device of devices) {
-      // Get all status change logs for this device on this date
-      const statusLogs = await ActivityLog.find({
+      const now = new Date();
+      const analysisEnd = endOfDay > now ? now : endOfDay;
+
+      const parseDate = (value) => {
+        if (!value) return null;
+        if (value instanceof Date) {
+          return Number.isNaN(value.getTime()) ? null : value;
+        }
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+      };
+
+      const latestDate = (...values) => {
+        const valid = values.map(parseDate).filter(Boolean);
+        if (!valid.length) return null;
+        valid.sort((a, b) => b - a);
+        return valid[0];
+      };
+
+      const lastSeenDate = parseDate(device.lastSeen);
+      const onlineSinceDate = parseDate(device.onlineSince);
+      const offlineSinceDate = parseDate(device.offlineSince);
+
+      const timeSinceLastSeenMs = lastSeenDate ? (now - lastSeenDate) : Infinity;
+      let effectiveStatus = timeSinceLastSeenMs <= offlineThresholdMs ? 'online' : 'offline';
+      if (device.status === 'offline' && !lastSeenDate) {
+        effectiveStatus = 'offline';
+      }
+      if (device.status === 'error') {
+        effectiveStatus = 'offline';
+      }
+
+      const fallbackCurrentSinceDate = effectiveStatus === 'online'
+        ? (onlineSinceDate || lastSeenDate)
+        : (offlineSinceDate || lastSeenDate);
+
+      const fallbackDurationSeconds = fallbackCurrentSinceDate
+        ? Math.max(0, Math.floor((now - fallbackCurrentSinceDate) / 1000))
+        : 0;
+
+      if (analysisEnd < startOfDay) {
+        uptimeStats.push({
+          deviceId: device._id,
+          deviceName: device.name,
+          onlineDuration: 0,
+          offlineDuration: 0,
+          lastOnlineAt: onlineSinceDate ? onlineSinceDate.toISOString() : null,
+          lastOfflineAt: offlineSinceDate ? offlineSinceDate.toISOString() : null,
+          totalUptime: '0s',
+          totalDowntime: '0s',
+          currentStatus: effectiveStatus,
+          lastSeen: lastSeenDate ? lastSeenDate.toISOString() : null,
+          currentStatusSince: fallbackCurrentSinceDate ? fallbackCurrentSinceDate.toISOString() : null,
+          currentStatusDurationSeconds: fallbackDurationSeconds,
+          currentStatusDurationFormatted: formatDuration(fallbackDurationSeconds)
+        });
+        continue;
+      }
+
+      const lastLogBeforeDay = await ActivityLog.findOne({
         deviceId: device._id,
-        action: { $in: ['device_online', 'device_offline', 'device_connected', 'device_disconnected'] },
-        timestamp: { $gte: startOfDay, $lte: endOfDay }
-      }).sort({ timestamp: 1 }).lean();
-      
+        action: { $in: statusActions },
+        timestamp: { $lt: startOfDay }
+      })
+      .sort({ timestamp: -1 })
+      .lean();
+
+      const dayLogs = await ActivityLog.find({
+        deviceId: device._id,
+        action: { $in: statusActions },
+        timestamp: { $gte: startOfDay, $lte: analysisEnd }
+      })
+      .sort({ timestamp: 1 })
+      .lean();
+
+      const toStatus = (action) => onlineActions.includes(action) ? 'online' : 'offline';
+
+      let statusAtStart = lastLogBeforeDay ? toStatus(lastLogBeforeDay.action) : null;
+      if (!statusAtStart) {
+        if (onlineSinceDate && onlineSinceDate <= startOfDay && (!offlineSinceDate || offlineSinceDate < onlineSinceDate)) {
+          statusAtStart = 'online';
+        } else if (offlineSinceDate && offlineSinceDate <= startOfDay && (!onlineSinceDate || onlineSinceDate < offlineSinceDate)) {
+          statusAtStart = 'offline';
+        } else {
+          statusAtStart = effectiveStatus;
+        }
+      }
+      if (!statusAtStart) {
+        statusAtStart = 'offline';
+      }
+
+      const events = dayLogs.map(log => ({
+        time: new Date(log.timestamp),
+        status: toStatus(log.action),
+        source: 'activity_log'
+      }));
+
+      const addEvent = (time, status, source) => {
+        const eventTime = parseDate(time);
+        if (!eventTime) return;
+        if (eventTime < startOfDay || eventTime > analysisEnd) return;
+        if (events.some(evt => Math.abs(evt.time - eventTime) < 1000 && evt.status === status)) return;
+        events.push({ time: eventTime, status, source });
+      };
+
+      addEvent(onlineSinceDate, 'online', 'device_state');
+      addEvent(offlineSinceDate, 'offline', 'device_state');
+
+      events.sort((a, b) => a.time - b.time);
+
+      let currentTimelineStatus = statusAtStart;
+      let lastTimestamp = startOfDay;
       let onlineDuration = 0;
       let offlineDuration = 0;
-      let lastStatus = device.status === 'online' ? 'online' : 'offline';
-      let lastTimestamp = startOfDay;
-      let lastOnlineAt = device.status === 'online' && device.lastSeen ? device.lastSeen : null;
-      let lastOfflineAt = device.status === 'offline' && device.lastSeen ? device.lastSeen : null;
-      
-      // ALWAYS calculate based on MOST RECENT status change (ignore daily boundaries)
-      // This ensures continuous uptime/downtime tracking across multiple days
-      if (true) { // Force this path for all devices
-        const now = new Date();
-        const currentTime = now; // Use actual current time, not limited by endOfDay
-        
-        // Find the MOST RECENT status change event (from any time) to determine when status actually changed
-        const lastStatusChangeLog = await ActivityLog.findOne({
-          deviceId: device._id,
-          action: { $in: ['device_online', 'device_connected', 'device_offline', 'device_disconnected'] },
-          timestamp: { $lte: currentTime } // Look for any status change up to now
-        })
-        .sort({ timestamp: -1 })
-        .limit(1);
-        
-        if (lastStatusChangeLog) {
-          // Use the timestamp when status actually changed (not lastSeen heartbeat)
-          const statusChangeDate = new Date(lastStatusChangeLog.timestamp);
-          const isOnlineAction = lastStatusChangeLog.action === 'device_online' || lastStatusChangeLog.action === 'device_connected';
-          
-          // Verify that the log action matches current device status
-          if ((device.status === 'online' && isOnlineAction) || (device.status === 'offline' && !isOnlineAction)) {
-            // Status matches - use this as the authoritative timestamp
-            // CALCULATE TOTAL CONTINUOUS UPTIME/DOWNTIME FROM ACTUAL STATUS CHANGE TIME
-            
-            if (device.status === 'online') {
-              // Device came online at statusChangeDate - calculate TOTAL time online
-              onlineDuration = (currentTime - statusChangeDate) / 1000;
-              lastOnlineAt = lastStatusChangeLog.timestamp;
-              
-              // Don't calculate offlineDuration - device is currently ONLINE
-              // onlineDuration already contains the total time online from statusChangeDate
-            } else {
-              // Device went offline at statusChangeDate - calculate TOTAL time offline
-              offlineDuration = (currentTime - statusChangeDate) / 1000;
-              lastOfflineAt = lastStatusChangeLog.timestamp;
-              
-              // Don't calculate onlineDuration - device is currently OFFLINE
-              // offlineDuration already contains the total time offline from statusChangeDate
-            }
-          } else {
-            // Status mismatch - the log doesn't match current status
-            // This means there might be a status change we don't have logged yet
-            // Fall back to device.lastSeen cautiously
-            if (device.lastSeen) {
-              const lastSeenDate = new Date(device.lastSeen);
-              
-              if (device.status === 'online') {
-                if (lastSeenDate < startOfDay) {
-                  onlineDuration = (currentTime - startOfDay) / 1000;
-                  lastOnlineAt = startOfDay.toISOString();
-                } else if (lastSeenDate >= startOfDay && lastSeenDate <= currentTime) {
-                  offlineDuration = (lastSeenDate - startOfDay) / 1000;
-                  onlineDuration = (currentTime - lastSeenDate) / 1000;
-                  lastOnlineAt = device.lastSeen;
-                }
-              } else {
-                if (lastSeenDate < startOfDay) {
-                  offlineDuration = (currentTime - startOfDay) / 1000;
-                  lastOfflineAt = startOfDay.toISOString();
-                } else if (lastSeenDate >= startOfDay && lastSeenDate <= currentTime) {
-                  onlineDuration = (lastSeenDate - startOfDay) / 1000;
-                  offlineDuration = (currentTime - lastSeenDate) / 1000;
-                  lastOfflineAt = device.lastSeen;
-                }
-              }
-            } else {
-              // Absolute fallback
-              const totalDuration = (currentTime - startOfDay) / 1000;
-              if (device.status === 'online') {
-                onlineDuration = totalDuration;
-                lastOnlineAt = startOfDay.toISOString();
-              } else {
-                offlineDuration = totalDuration;
-                lastOfflineAt = startOfDay.toISOString();
-              }
-            }
-          }
-        } else {
-          // No status change logs found at all - use device.lastSeen as fallback
-          if (device.lastSeen) {
-            const lastSeenDate = new Date(device.lastSeen);
-            
-            if (device.status === 'online') {
-              // Device is currently online
-              if (lastSeenDate < startOfDay) {
-                // Device has been online since before this day started
-                onlineDuration = (currentTime - startOfDay) / 1000;
-                lastOnlineAt = startOfDay.toISOString();
-              } else if (lastSeenDate >= startOfDay && lastSeenDate <= currentTime) {
-                // Device came online during this day
-                offlineDuration = (lastSeenDate - startOfDay) / 1000;
-                onlineDuration = (currentTime - lastSeenDate) / 1000;
-                lastOnlineAt = device.lastSeen;
-              }
-            } else {
-              // Device is currently offline
-              if (lastSeenDate < startOfDay) {
-                // Device has been offline since before this day started
-                offlineDuration = (currentTime - startOfDay) / 1000;
-                lastOfflineAt = startOfDay.toISOString();
-              } else if (lastSeenDate >= startOfDay && lastSeenDate <= currentTime) {
-                // Device went offline during this day
-                onlineDuration = (lastSeenDate - startOfDay) / 1000;
-                offlineDuration = (currentTime - lastSeenDate) / 1000;
-                lastOfflineAt = device.lastSeen;
-              }
-            }
-          } else {
-            // No lastSeen timestamp, assume current status for entire day
-            const totalDuration = (currentTime - startOfDay) / 1000;
-            
-            if (device.status === 'online') {
-              onlineDuration = totalDuration;
-              lastOnlineAt = startOfDay.toISOString();
-            } else {
-              offlineDuration = totalDuration;
-              lastOfflineAt = startOfDay.toISOString();
-            }
-          }
+
+      for (const event of events) {
+        if (event.time < lastTimestamp) {
+          currentTimelineStatus = event.status;
+          lastTimestamp = event.time;
+          continue;
         }
-      } else {
-        // Process logs if they exist
-        statusLogs.forEach(log => {
-          const duration = (new Date(log.timestamp) - lastTimestamp) / 1000; // in seconds
-          
-          if (lastStatus === 'online') {
+
+        const duration = (event.time - lastTimestamp) / 1000;
+        if (duration > 0) {
+          if (currentTimelineStatus === 'online') {
             onlineDuration += duration;
           } else {
             offlineDuration += duration;
           }
-          
-          // Update status based on action
-          if (log.action === 'device_online' || log.action === 'device_connected') {
-            lastStatus = 'online';
-            lastOnlineAt = log.timestamp;
-          } else {
-            lastStatus = 'offline';
-            lastOfflineAt = log.timestamp;
-          }
-          
-          lastTimestamp = new Date(log.timestamp);
-        });
-        
-        // Add duration from last log to current time (or end of day)
-        const now = new Date();
-        const currentTime = now > endOfDay ? endOfDay : now;
-        const remainingDuration = (currentTime - lastTimestamp) / 1000;
-        
-        if (lastStatus === 'online') {
+        }
+
+        currentTimelineStatus = event.status;
+        lastTimestamp = event.time;
+      }
+
+      const remainingDuration = (analysisEnd - lastTimestamp) / 1000;
+      if (remainingDuration > 0) {
+        if (currentTimelineStatus === 'online') {
           onlineDuration += remainingDuration;
         } else {
           offlineDuration += remainingDuration;
         }
       }
-      
-      // Format durations
-      const formatDuration = (seconds) => {
-        if (seconds < 60) return `${Math.floor(seconds)}s`;
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
-        if (seconds < 86400) {
-          const hours = Math.floor(seconds / 3600);
-          const mins = Math.floor((seconds % 3600) / 60);
-          return `${hours}h ${mins}m`;
+
+      const lastOnlineLog = await ActivityLog.findOne({
+        deviceId: device._id,
+        action: { $in: onlineActions },
+        timestamp: { $lte: now }
+      })
+      .sort({ timestamp: -1 })
+      .lean();
+
+      const lastOfflineLog = await ActivityLog.findOne({
+        deviceId: device._id,
+        action: { $in: offlineActions },
+        timestamp: { $lte: now }
+      })
+      .sort({ timestamp: -1 })
+      .lean();
+
+      const lastOnlineLogDate = parseDate(lastOnlineLog?.timestamp);
+      const lastOfflineLogDate = parseDate(lastOfflineLog?.timestamp);
+
+      let currentStatusSinceDate;
+      if (effectiveStatus === 'online') {
+        if (onlineSinceDate) {
+          currentStatusSinceDate = onlineSinceDate;
+        } else if (lastOnlineLogDate && (!lastOfflineLogDate || lastOnlineLogDate >= lastOfflineLogDate)) {
+          currentStatusSinceDate = lastOnlineLogDate;
+        } else if (lastSeenDate) {
+          currentStatusSinceDate = lastSeenDate;
+        } else {
+          currentStatusSinceDate = null;
         }
-        const days = Math.floor(seconds / 86400);
-        const hours = Math.floor((seconds % 86400) / 3600);
-        return `${days}d ${hours}h`;
-      };
-      
+      } else {
+        if (offlineSinceDate) {
+          currentStatusSinceDate = offlineSinceDate;
+        } else if (lastOfflineLogDate && (!lastOnlineLogDate || lastOfflineLogDate >= lastOnlineLogDate)) {
+          currentStatusSinceDate = lastOfflineLogDate;
+        } else if (lastSeenDate) {
+          currentStatusSinceDate = lastSeenDate;
+        } else {
+          currentStatusSinceDate = null;
+        }
+      }
+
+      const currentStatusDurationSeconds = currentStatusSinceDate
+        ? Math.max(0, Math.floor((now - currentStatusSinceDate) / 1000))
+        : 0;
+
+      const lastOnlineAtDate = latestDate(lastOnlineLogDate, onlineSinceDate);
+      const lastOfflineAtDate = latestDate(lastOfflineLogDate, offlineSinceDate);
+
       uptimeStats.push({
         deviceId: device._id,
         deviceName: device.name,
-        onlineDuration: Math.floor(onlineDuration),
-        offlineDuration: Math.floor(offlineDuration),
-        lastOnlineAt: lastOnlineAt || 'N/A',
-        lastOfflineAt: lastOfflineAt || 'N/A',
+        onlineDuration: Math.max(0, Math.floor(onlineDuration)),
+        offlineDuration: Math.max(0, Math.floor(offlineDuration)),
+        lastOnlineAt: lastOnlineAtDate ? lastOnlineAtDate.toISOString() : null,
+        lastOfflineAt: lastOfflineAtDate ? lastOfflineAtDate.toISOString() : null,
         totalUptime: formatDuration(onlineDuration),
         totalDowntime: formatDuration(offlineDuration),
-        currentStatus: device.status,
-        lastSeen: device.lastSeen || null
+        currentStatus: effectiveStatus,
+        lastSeen: lastSeenDate ? lastSeenDate.toISOString() : null,
+        currentStatusSince: currentStatusSinceDate ? currentStatusSinceDate.toISOString() : null,
+        currentStatusDurationSeconds,
+        currentStatusDurationFormatted: formatDuration(currentStatusDurationSeconds)
       });
     }
     

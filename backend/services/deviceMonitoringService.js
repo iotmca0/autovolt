@@ -3,6 +3,7 @@ const PowerConsumptionLog = require('../models/PowerConsumptionLog');
 const EnhancedLoggingService = require('./enhancedLoggingService');
 const DeviceStatusLog = require('../models/DeviceStatusLog');
 const ActivityLog = require('../models/ActivityLog');
+const Settings = require('../models/Settings');
 
 // Import metrics functions from metricsService
 const { timeLimitExceededCount, switchTimeOnMinutes } = require('../metricsService');
@@ -12,6 +13,31 @@ class DeviceMonitoringService {
     this.monitoringInterval = null;
     this.isRunning = false;
     this.checkIntervalMs = 30 * 1000; // 30 seconds
+    this.offlineThresholdMs = 2 * 60 * 1000; // default 2 minutes
+    this.lastThresholdRefresh = 0;
+  }
+
+  async getOfflineThresholdMs(force = false) {
+    const now = Date.now();
+    if (!force && now - this.lastThresholdRefresh < 60 * 1000) {
+      return this.offlineThresholdMs;
+    }
+
+    try {
+      const settings = await Settings.findOne({}, { 'security.deviceOfflineThreshold': 1 }).lean();
+      const thresholdSeconds = settings?.security?.deviceOfflineThreshold;
+      if (typeof thresholdSeconds === 'number' && thresholdSeconds > 0) {
+        this.offlineThresholdMs = thresholdSeconds * 1000;
+      } else {
+        this.offlineThresholdMs = 2 * 60 * 1000;
+      }
+    } catch (error) {
+      console.error('[MONITORING] Failed to load offline threshold from settings:', error.message);
+      this.offlineThresholdMs = 2 * 60 * 1000;
+    }
+
+    this.lastThresholdRefresh = now;
+    return this.offlineThresholdMs;
   }
 
   // Start the monitoring service
@@ -52,12 +78,13 @@ class DeviceMonitoringService {
     try {
       console.log('[MONITORING] Starting scheduled device status check...');
 
+      const offlineThresholdMs = await this.getOfflineThresholdMs();
       const devices = await Device.find({}).sort({ name: 1 });
       console.log(`[MONITORING] Found ${devices.length} devices to check`);
 
       for (const device of devices) {
         console.log(`[STATUS-CHECK] Checking device: ${device.name} (${device.macAddress}) - Status: ${device.status}, LastSeen: ${device.lastSeen}`);
-        await this.checkDeviceStatus(device);
+        await this.checkDeviceStatus(device, offlineThresholdMs);
         // Small delay between devices to prevent overwhelming
         await this.sleep(1000);
       }
@@ -78,7 +105,7 @@ class DeviceMonitoringService {
   }
 
   // Check individual device status
-  async checkDeviceStatus(device) {
+  async checkDeviceStatus(device, offlineThresholdMs) {
     try {
       const statusData = {
         deviceId: device._id,
@@ -94,7 +121,7 @@ class DeviceMonitoringService {
       statusData.switchStates = switchStates;
 
       // Get device status
-      const deviceStatus = await this.getDeviceStatus(device);
+  const deviceStatus = await this.getDeviceStatus(device, offlineThresholdMs);
       statusData.deviceStatus = deviceStatus;
 
       console.log(`[STATUS-CHECK] ${device.name} - isOnline: ${deviceStatus.isOnline}, timeSinceLastSeen: ${device.lastSeen ? (new Date() - device.lastSeen) / 1000 : 'never'} seconds`);
@@ -115,12 +142,15 @@ class DeviceMonitoringService {
       await EnhancedLoggingService.logDeviceStatus(statusData);
 
       // Check if device status changed and send real-time notification
-      const previousStatus = device.status;
-      const newStatus = deviceStatus.isOnline ? 'online' : 'offline';
+  const previousStatus = device.status;
+  const newStatus = deviceStatus.isOnline ? 'online' : 'offline';
+  const statusChangeTime = new Date();
       
       if (previousStatus !== newStatus) {
         console.log(`[MONITORING] Device ${device.name} status changed: ${previousStatus} -> ${newStatus}`);
         
+        const changeTimestamp = deviceStatus.lastSeen || statusChangeTime;
+
         // Log status change to ActivityLog for uptime tracking
         try {
           await ActivityLog.create({
@@ -130,7 +160,7 @@ class DeviceMonitoringService {
             triggeredBy: 'system',
             classroom: device.classroom,
             location: device.location,
-            timestamp: new Date()
+            timestamp: changeTimestamp
           });
           console.log(`[MONITORING] ActivityLog created: ${device.name} is now ${newStatus}`);
         } catch (logError) {
@@ -187,10 +217,35 @@ class DeviceMonitoringService {
       }
 
       // Update device last checked timestamp and status
-      await Device.findByIdAndUpdate(device._id, {
-        lastStatusCheck: new Date(),
+      const updatePayload = {
+        lastStatusCheck: statusChangeTime,
         status: newStatus
-      });
+      };
+
+      if (previousStatus !== newStatus) {
+        if (newStatus === 'online') {
+          // Device came back online - set onlineSince to when we detected it
+          updatePayload.onlineSince = statusChangeTime;
+          updatePayload.offlineSince = null;
+          device.onlineSince = updatePayload.onlineSince;
+          device.offlineSince = null;
+        } else if (newStatus === 'offline') {
+          // Device went offline - offlineSince should be when the last heartbeat was received (lastSeen)
+          // NOT the current time when we detected the timeout
+          const offlineSince = device.lastSeen ? new Date(device.lastSeen) : statusChangeTime;
+          updatePayload.offlineSince = offlineSince;
+          updatePayload.onlineSince = null;
+          device.offlineSince = offlineSince;
+          device.onlineSince = null;
+        }
+      } else if (newStatus === 'offline' && !device.offlineSince) {
+        // Already offline but offlineSince not set - backfill it
+        const offlineSince = device.lastSeen ? new Date(device.lastSeen) : statusChangeTime;
+        updatePayload.offlineSince = offlineSince;
+        device.offlineSince = offlineSince;
+      }
+
+      await Device.findByIdAndUpdate(device._id, updatePayload);
 
     } catch (error) {
       console.error(`[MONITORING] Error checking device ${device.name}:`, error);
@@ -255,11 +310,14 @@ class DeviceMonitoringService {
   }
 
   // Get device status (placeholder - would query ESP32)
-  async getDeviceStatus(device) {
+  async getDeviceStatus(device, offlineThresholdMs) {
     try {
       const now = new Date();
+      const threshold = typeof offlineThresholdMs === 'number' && offlineThresholdMs > 0
+        ? offlineThresholdMs
+        : this.offlineThresholdMs;
       const timeSinceLastSeen = device.lastSeen ? now - device.lastSeen : Infinity;
-      const isOnline = timeSinceLastSeen < (30 * 1000); // 30 second timeout
+      const isOnline = timeSinceLastSeen < threshold;
 
       return {
         isOnline: isOnline,
@@ -267,7 +325,7 @@ class DeviceMonitoringService {
         uptime: Math.floor(Math.random() * 86400), // seconds
         freeHeap: Math.floor(Math.random() * 50000) + 10000, // bytes
         temperature: Math.floor(Math.random() * 20) + 20, // 20-40°C
-        lastSeen: device.lastSeen || new Date(),
+  lastSeen: device.lastSeen || now,
         responseTime: Math.floor(Math.random() * 500) + 50, // milliseconds
         powerStatus: isOnline ? 'stable' : 'unknown'
       };

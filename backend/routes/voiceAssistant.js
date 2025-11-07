@@ -149,27 +149,69 @@ router.post('/voice/command', auth, voiceAuth, voiceRateLimit(100, 15 * 60 * 100
 
     const result = await processVoiceCommand(command, deviceName, switchName, req.user);
 
-    // Log voice assistant activity with session info
-    await ActivityLog.create({
-      action: 'voice_command',
-      triggeredBy: 'voice_assistant',
-      userId: req.user.id,
-      userName: req.user.name,
-      details: `Voice command: "${command}" via ${assistant || 'web'}`,
-      ip: req.ip,
-      userAgent: req.get('User-Agent'),
-      metadata: {
-        assistant: assistant || 'web',
-        command,
-        deviceName,
-        switchName,
-        result: result.success,
-        sessionInfo: {
-          commandCount: req.voiceSession?.commandCount,
-          sessionAge: req.voiceSession?.createdAt
-        }
+    const assistantSource = assistant || 'web';
+    const operationsForLog = Array.isArray(result.operations) && result.operations.length
+      ? result.operations
+      : (result.device?.id
+          ? [{
+              device: result.device,
+              switch: result.switch,
+              actionType: result.actionType,
+              desiredState: result.desiredState,
+              previousState: result.previousState,
+              success: result.success,
+              error: result.error,
+              message: result.message
+            }]
+          : []);
+
+    for (const op of operationsForLog) {
+      if (!op.device?.id) {
+        continue;
       }
-    });
+
+      const actionForLog = op.actionType === 'status'
+        ? 'status_check'
+        : operationsForLog.length > 1
+          ? (op.desiredState ? 'bulk_on' : 'bulk_off')
+          : 'voice_command';
+
+      await ActivityLog.create({
+        deviceId: op.device.id,
+        deviceName: op.device.name,
+        classroom: op.device.classroom,
+        location: op.device.location,
+        macAddress: op.device.macAddress,
+        switchId: op.switch?.id,
+        switchName: op.switch?.name,
+        switchType: op.switch?.type,
+        action: actionForLog,
+        triggeredBy: 'voice_assistant',
+        userId: req.user.id,
+        userName: req.user.name,
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        context: {
+          assistant: assistantSource,
+          command,
+          requestedDevice: deviceName,
+          requestedSwitch: switchName,
+          actionType: op.actionType,
+          desiredState: op.desiredState,
+          previousState: op.previousState,
+          success: op.success,
+          error: op.error,
+          message: op.message,
+          operationsCount: operationsForLog.length,
+          interpretation: result.interpretation,
+          sessionInfo: {
+            commandCount: req.voiceSession?.commandCount,
+            sessionAge: req.voiceSession?.createdAt
+          },
+          extraContext: result.context
+        }
+      });
+    }
 
     res.json(result);
   } catch (error) {
