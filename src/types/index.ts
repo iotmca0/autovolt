@@ -30,6 +30,13 @@ export interface Device {
   pirSensitivity?: number; // 0-100%
   pirDetectionRange?: number; // 1-10 meters
   motionDetectionLogic?: 'and' | 'or' | 'weighted';
+  // PIR Detection Schedule - Time-based control
+  pirDetectionSchedule?: {
+    enabled: boolean;
+    activeStartTime: string; // HH:MM format
+    activeEndTime: string; // HH:MM format
+    daysOfWeek?: number[]; // 0-6, Sunday to Saturday
+  };
   lastSeen: Date;
   location?: string;
   classroom?: string;

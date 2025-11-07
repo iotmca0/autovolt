@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { Capacitor } from '@capacitor/core';
 
 export const RootRedirect: React.FC = () => {
   const { isAuthenticated, loading } = useAuth();
@@ -13,6 +14,12 @@ export const RootRedirect: React.FC = () => {
     );
   }
 
-  // If authenticated, go to dashboard, otherwise go to landing
-  return <Navigate to={isAuthenticated ? "/dashboard" : "/landing"} replace />;
+  // Check if running on mobile (Capacitor)
+  const isMobile = Capacitor.isNativePlatform();
+
+  // If authenticated, go to dashboard
+  // If not authenticated:
+  //   - On mobile: go directly to login
+  //   - On web: go to landing page
+  return <Navigate to={isAuthenticated ? "/dashboard" : (isMobile ? "/login" : "/landing")} replace />;
 };

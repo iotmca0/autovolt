@@ -5,6 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useVoiceSession } from '@/hooks/useVoiceSession';
 import { voiceAssistantAPI } from '@/services/api';
 import { cn } from '@/lib/utils';
+import { Capacitor } from '@capacitor/core';
 
 interface FloatingVoiceMicProps {
   onCommandExecuted?: (result: any) => void;
@@ -12,7 +13,7 @@ interface FloatingVoiceMicProps {
 
 export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExecuted }) => {
   const { toast } = useToast();
-  const { voiceToken, isAuthenticated, isLoading: sessionLoading, createVoiceSession } = useVoiceSession();
+  const { voiceToken, isAuthenticated, isLoading: sessionLoading, createVoiceSession, clearVoiceSession } = useVoiceSession();
   
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -25,10 +26,20 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
 
-  // Check browser support
+  // Check browser support OR Capacitor native support
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    setIsSpeechSupported(!!SpeechRecognition && !!window.speechSynthesis);
+    const isNative = Capacitor.isNativePlatform();
+    
+    // In Capacitor WebView, Web Speech API should work directly
+    const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    
+    if (SpeechRecognitionAPI) {
+      setIsSpeechSupported(true);
+      console.log('🎤 Speech recognition available:', isNative ? 'Native WebView' : 'Browser');
+    } else {
+      setIsSpeechSupported(false);
+      console.log('❌ Speech recognition NOT available');
+    }
     
     if (window.speechSynthesis) {
       synthRef.current = window.speechSynthesis;
@@ -38,11 +49,20 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
   // Initialize voice session on mount
   useEffect(() => {
     if (!isAuthenticated && !sessionLoading && isSpeechSupported) {
+      console.log('🔐 Attempting to create voice session...');
       createVoiceSession().catch(err => {
-        console.error('Failed to create voice session:', err);
+        console.error('❌ Failed to create voice session:', err);
+        console.error('Error details:', err.response?.data || err.message);
+        toast({
+          title: '⚠️ Voice Session Error',
+          description: 'Please login first to use voice commands',
+          variant: 'destructive'
+        });
       });
+    } else if (isAuthenticated) {
+      console.log('✅ Voice session already authenticated');
     }
-  }, [isAuthenticated, sessionLoading, createVoiceSession, isSpeechSupported]);
+  }, [isAuthenticated, sessionLoading, createVoiceSession, isSpeechSupported, toast]);
 
   // Initialize speech recognition (lazy initialization - only when needed)
   const initRecognition = () => {
@@ -76,7 +96,11 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
         let errorMessage = 'Voice recognition error';
         switch(event.error) {
           case 'not-allowed':
-            errorMessage = 'Microphone access denied. Please enable microphone permissions in your browser settings.';
+            errorMessage = '🔒 Microphone blocked! Using HTTP on network IP. Solution: Access via http://localhost:5173 or enable HTTPS. See console for details.';
+            console.error('🔒 MICROPHONE BLOCKED - SECURITY ISSUE');
+            console.error('Problem: Browser blocks microphone on HTTP (non-localhost)');
+            console.error('Quick Fix: Access app via http://localhost:5173 instead');
+            console.error('Or use: edge://flags/#unsafely-treat-insecure-origin-as-secure');
             break;
           case 'network':
             errorMessage = 'Network error. Please check your connection.';
@@ -205,28 +229,44 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
     }
   };
 
-  const processCommand = async (command: string) => {
-    if (!voiceToken) {
-      toast({
-        title: 'Authentication Required',
-        description: 'Please wait for voice session',
-        variant: 'destructive'
-      });
+  const ensureVoiceSession = async () => {
+    if (voiceToken) {
+      return voiceToken;
+    }
+
+    const session = await createVoiceSession();
+    if (session?.voiceToken) {
+      return session.voiceToken;
+    }
+
+    toast({
+      title: 'Authentication Required',
+      description: 'Please login to use voice commands',
+      variant: 'destructive'
+    });
+    return null;
+  };
+
+  const processCommand = async (command: string, retried = false) => {
+    const activeToken = await ensureVoiceSession();
+    if (!activeToken) {
       return;
     }
 
     setIsProcessing(true);
 
-    toast({
-      title: '🎤 Processing...',
-      description: `"${command}"`,
-    });
+    if (!retried) {
+      toast({
+        title: '🎤 Processing...',
+        description: `"${command}"`,
+      });
+    }
 
     try {
       const response = await voiceAssistantAPI.processVoiceCommand({
         command,
         assistant: 'web',
-        voiceToken
+        voiceToken: activeToken
       });
 
       if (response.data.success) {
@@ -251,9 +291,37 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
         });
       }
     } catch (error: any) {
+      console.error('❌ Voice command error:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      const statusCode = error.response?.status;
+      const errorCode = error.response?.data?.code;
+      let errorMessage = 'Failed to process command';
+
+      if (!retried && (errorCode === 'INVALID_VOICE_SESSION' || errorCode === 'VOICE_SESSION_EXPIRED')) {
+        clearVoiceSession();
+        const session = await createVoiceSession();
+        if (session) {
+          toast({
+            title: '🔄 Voice Session Refreshed',
+            description: 'Please try your command again.',
+          });
+          return await processCommand(command, true);
+        }
+        errorMessage = 'Voice session expired. Please login again.';
+      }
+
+      if (statusCode === 401 && errorCode !== 'INVALID_VOICE_SESSION' && errorCode !== 'VOICE_SESSION_EXPIRED') {
+        errorMessage = 'Please login first to use voice commands';
+      } else if (statusCode === 403) {
+        errorMessage = 'Voice session expired. Please refresh the page';
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      }
+
       toast({
         title: '❌ Error',
-        description: error.response?.data?.message || 'Failed to process command',
+        description: errorMessage,
         variant: 'destructive'
       });
     } finally {

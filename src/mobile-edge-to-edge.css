@@ -1,0 +1,154 @@
+/* Mobile Edge-to-Edge Support for Android/iOS */
+
+/* Safe area insets - respects notches, status bars, etc */
+:root {
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
+}
+
+/* Apply safe area padding to body */
+@supports (padding-top: env(safe-area-inset-top)) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+  }
+}
+
+/* App container should use full viewport height */
+#root {
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  width: 100%;
+}
+
+html {
+  height: -webkit-fill-available;
+}
+
+/* Navigation and headers should respect safe area */
+.navbar,
+.app-header,
+nav[role="navigation"],
+header {
+  padding-top: calc(0.5rem + env(safe-area-inset-top));
+}
+
+/* Bottom navigation should respect safe area */
+.bottom-nav,
+.app-footer,
+footer {
+  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+}
+
+/* Capacitor/Mobile specific styles */
+.capacitor-app,
+.mobile-app {
+  /* Prevent pull-to-refresh */
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  
+  /* Use full viewport */
+  height: 100vh;
+  height: -webkit-fill-available;
+  width: 100vw;
+}
+
+/* Status bar spacing for mobile devices */
+@media (max-width: 768px) {
+  /* Top safe area for headers */
+  .mobile-header,
+  .header-with-safe-area {
+    padding-top: max(env(safe-area-inset-top), 0.5rem) !important;
+  }
+  
+  /* Utility classes for safe areas */
+  .mobile-safe-top,
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  
+  .mobile-safe-bottom,
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .mobile-safe-left,
+  .safe-left {
+    padding-left: env(safe-area-inset-left);
+  }
+  
+  .mobile-safe-right,
+  .safe-right {
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  /* Full safe area padding */
+  .mobile-safe-all,
+  .safe-all {
+    padding-top: env(safe-area-inset-top);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+  }
+}
+
+/* Fix for iOS Safari viewport units */
+@supports (-webkit-touch-callout: none) {
+  #root {
+    min-height: -webkit-fill-available;
+  }
+}
+
+/* Prevent viewport zoom on input focus (iOS) */
+@media (max-width: 768px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Hide scrollbar when using edge-to-edge on mobile */
+@media (max-width: 768px) {
+  body::-webkit-scrollbar {
+    display: none;
+  }
+  
+  body {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Ensure modals and dialogs respect safe area */
+.modal-content,
+.dialog-content,
+[role="dialog"] {
+  max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+
+/* Fixed positioned elements */
+.fixed-top {
+  top: env(safe-area-inset-top);
+}
+
+.fixed-bottom {
+  bottom: env(safe-area-inset-bottom);
+}
+
+.fixed-left {
+  left: env(safe-area-inset-left);
+}
+
+.fixed-right {
+  right: env(safe-area-inset-right);
+}

@@ -40,8 +40,7 @@ export const MasterSwitchCard: React.FC<MasterSwitchCardProps> = ({
   const derivedActive = devices.reduce((sum, d) => sum + d.switches.filter(sw => sw.state).length, 0);
   const totalSwitches = derivedTotal || externalTotal || 0;
   const activeSwitches = derivedActive || externalActive || 0;
-  if (externalTotal !== undefined && externalTotal !== derivedTotal && process.env.NODE_ENV !== 'production') {
-     
+  if (externalTotal !== undefined && externalTotal !== derivedTotal && import.meta.env.DEV) {
     console.debug('[MasterSwitchCard] external vs derived mismatch', { externalTotal, derivedTotal, externalActive, derivedActive });
   }
   const { customSwitches, addCustomSwitch, toggleCustomSwitch, deleteCustomSwitch, toggleOnlineDevicesInCustomSwitch } = useCustomMasterSwitches();

@@ -14,6 +14,30 @@ let deferredPrompt: BeforeInstallPromptEvent | null = null;
  * Register service worker
  */
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (import.meta.env.DEV) {
+    console.info('[PWA] Development mode detected - skipping service worker registration');
+
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+
+      if (registrations.length > 0) {
+        console.info(`[PWA] Unregistering ${registrations.length} existing service worker(s)`);
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+    }
+
+    if ('caches' in window) {
+      const cacheNames = await caches.keys();
+
+      if (cacheNames.length > 0) {
+        console.info(`[PWA] Clearing ${cacheNames.length} cache(s) for development refresh`);
+        await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
+      }
+    }
+
+    return null;
+  }
+
   if ('serviceWorker' in navigator) {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {

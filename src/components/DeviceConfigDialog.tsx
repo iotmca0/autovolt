@@ -100,6 +100,13 @@ const formSchema = z.object({
   // Dual sensor support - Fixed GPIO pins (34 for PIR, 35 for Microwave)
   pirSensorType: z.enum(['hc-sr501', 'rcwl-0516', 'both']).default('hc-sr501').optional(),
   motionDetectionLogic: z.enum(['and', 'or', 'weighted']).default('and').optional(),
+  // PIR Detection Schedule
+  pirDetectionSchedule: z.object({
+    enabled: z.boolean().default(false),
+    activeStartTime: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Time must be in HH:MM format').default('18:00'),
+    activeEndTime: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Time must be in HH:MM format').default('22:00'),
+    daysOfWeek: z.array(z.number().min(0).max(6)).optional()
+  }).optional(),
   deviceNotifications: deviceNotificationSchema.optional(),
   switches: z.array(switchSchema).min(1).max(8).refine(sw => {
     const prim = sw.map(s => s.gpio);
@@ -214,6 +221,12 @@ export const DeviceConfigDialog: React.FC<Props> = ({ open, onOpenChange, onSubm
         pirAutoOffDelay: initialData.pirAutoOffDelay || 30,
         pirSensorType: initialData.pirSensorType || 'hc-sr501',
         motionDetectionLogic: initialData.motionDetectionLogic || 'and',
+        pirDetectionSchedule: initialData.pirDetectionSchedule || {
+          enabled: false,
+          activeStartTime: '18:00',
+          activeEndTime: '22:00',
+          daysOfWeek: []
+        },
         deviceNotifications: notifSettings,
     switches: initialData.switches.map((sw: import('@/types').Switch) => ({
     id: sw.id,
@@ -235,7 +248,7 @@ export const DeviceConfigDialog: React.FC<Props> = ({ open, onOpenChange, onSubm
       const lp = parseLocation(undefined);
       fetchGpioInfo(); // Fetch GPIO info when creating new device
       form.reset({
-        name: '', macAddress: '', ipAddress: '', location: `Block ${lp.block} Floor ${lp.floor}`, classroom: '', deviceType: 'esp32', pirEnabled: false, pirGpio: undefined, pirAutoOffDelay: 30, deviceNotifications: undefined,
+        name: '', macAddress: '', ipAddress: '', location: `Block ${lp.block} Floor ${lp.floor}`, classroom: '', deviceType: 'esp32', pirEnabled: false, pirGpio: undefined, pirAutoOffDelay: 30, pirDetectionSchedule: { enabled: false, activeStartTime: '18:00', activeEndTime: '22:00', daysOfWeek: [] }, deviceNotifications: undefined,
   switches: [{ id: `switch-${Date.now()}-0`, name: '', gpio: undefined, relayGpio: undefined, type: 'relay', icon: 'lightbulb', state: false, manualSwitchEnabled: false, manualMode: 'maintained', manualActiveLow: true, usePir: false, dontAutoOff: false }]
       });
     }
@@ -663,6 +676,103 @@ export const DeviceConfigDialog: React.FC<Props> = ({ open, onOpenChange, onSubm
                       <FormMessage />
                     </FormItem>
                   )} />
+
+                  {/* PIR Detection Schedule */}
+                  <div className="space-y-4 border-t pt-4">
+                    <FormField control={form.control} name="pirDetectionSchedule.enabled" render={({ field }) => (
+                      <FormItem className="flex items-center gap-2">
+                        <FormControl>
+                          <UiSwitch checked={!!field.value} onCheckedChange={field.onChange} />
+                        </FormControl>
+                        <FormLabel className="!mt-0">Enable Time-Based Detection Schedule</FormLabel>
+                      </FormItem>
+                    )} />
+
+                    {form.watch('pirDetectionSchedule.enabled') && (
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          <FormField control={form.control} name="pirDetectionSchedule.activeStartTime" render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Detection Starts At</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  type="time" 
+                                  value={field.value || '18:00'}
+                                  onChange={e => field.onChange(e.target.value)} 
+                                />
+                              </FormControl>
+                              <FormDescription className="text-xs">
+                                PIR will start detecting after this time
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+
+                          <FormField control={form.control} name="pirDetectionSchedule.activeEndTime" render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Detection Ends At</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  type="time" 
+                                  value={field.value || '22:00'}
+                                  onChange={e => field.onChange(e.target.value)} 
+                                />
+                              </FormControl>
+                              <FormDescription className="text-xs">
+                                PIR will stop detecting after this time
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                        </div>
+
+                        <FormField control={form.control} name="pirDetectionSchedule.daysOfWeek" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Active Days</FormLabel>
+                            <div className="flex flex-wrap gap-2">
+                              {[
+                                { value: 0, label: 'Sun' },
+                                { value: 1, label: 'Mon' },
+                                { value: 2, label: 'Tue' },
+                                { value: 3, label: 'Wed' },
+                                { value: 4, label: 'Thu' },
+                                { value: 5, label: 'Fri' },
+                                { value: 6, label: 'Sat' }
+                              ].map((day) => (
+                                <Button
+                                  key={day.value}
+                                  type="button"
+                                  variant={field.value?.includes(day.value) ? 'default' : 'outline'}
+                                  size="sm"
+                                  onClick={() => {
+                                    const current = field.value || [];
+                                    const updated = current.includes(day.value)
+                                      ? current.filter((d: number) => d !== day.value)
+                                      : [...current, day.value];
+                                    field.onChange(updated);
+                                  }}
+                                >
+                                  {day.label}
+                                </Button>
+                              ))}
+                            </div>
+                            <FormDescription className="text-xs">
+                              PIR detection will only be active on selected days
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+
+                        <Alert className="border-blue-500/50 bg-blue-500/10">
+                          <Info className="h-4 w-4 text-blue-500" />
+                          <AlertDescription className="text-xs">
+                            <strong>Schedule Example:</strong> Set detection from 18:00 to 22:00 on weekdays to automatically control lights during evening classes only.
+                            Outside these times, PIR won't trigger any switches.
+                          </AlertDescription>
+                        </Alert>
+                      </>
+                    )}
+                  </div>
                 </>
               )}
             </div>

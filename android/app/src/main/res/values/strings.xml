@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AutoVolt</string>
+    <string name="title_activity_main">AutoVolt</string>
+    <string name="package_name">com.autovolt.app</string>
+    <string name="custom_url_scheme">com.autovolt.app</string>
+</resources>

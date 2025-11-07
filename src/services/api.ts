@@ -13,6 +13,7 @@ export const aiMlAPI = {
 
 import type { Device, Schedule } from '../types';
 import axios from 'axios';
+import { Capacitor } from '@capacitor/core';
 
 // Auto-detect working API base URL
 const API_URLS = [
@@ -22,9 +23,13 @@ const API_URLS = [
 
 let detectedApiBaseUrl = API_URLS[0];
 
+// Check if running in Capacitor (Android/iOS app)
+const isCapacitor = Capacitor.isNativePlatform();
+
 // In development, use the Vite proxy instead of direct backend connection
+// BUT if running in Capacitor, always use direct backend URL
 const isDevelopment = import.meta.env.DEV;
-const effectiveBaseUrl = isDevelopment ? '' : detectedApiBaseUrl; // Empty string means relative to current origin
+const effectiveBaseUrl = (isDevelopment && !isCapacitor) ? '' : 'http://172.16.3.171:3001/api'; // Empty string means relative to current origin
 
 // Call detectApiBaseUrl on initialization (only in production)
 if (!isDevelopment) {
@@ -75,21 +80,24 @@ export const getBackendOrigin = () => {
 // Normalize any accidental double /api prefixes (e.g., request to /api/devices when baseURL already ends with /api)
 api.interceptors.request.use((config) => {
   if (config.url) {
-    if (isDevelopment) {
-      // In development, ensure URLs start with /api for Vite proxy
+    if (isDevelopment && !isCapacitor) {
+      // In browser development, ensure URLs start with /api for Vite proxy
       if (!config.url.startsWith('/api/') && !config.url.startsWith('/api')) {
         config.url = '/api' + (config.url.startsWith('/') ? config.url : '/' + config.url);
       }
     } else {
-      // In production, handle the existing logic
+      // In Capacitor or production, handle the existing logic
       // Replace leading /api/ with / if baseURL already ends with /api
-      if (detectedApiBaseUrl.endsWith('/api') && config.url.startsWith('/api/')) {
+      if (effectiveBaseUrl.endsWith('/api') && config.url.startsWith('/api/')) {
         config.url = config.url.replace(/^\/api\//, '/');
       }
     }
     // Guard against resulting // paths
     config.url = config.url.replace(/\/\//g, '/');
   }
+  
+  console.log('[API] Request:', config.method?.toUpperCase(), config.url, 'isCapacitor:', isCapacitor);
+  
   return config;
 });
 
@@ -154,6 +162,18 @@ api.interceptors.response.use(
 
     // Generic unauthorized (not login/register) -> clear & soft redirect only if a token had existed
     if (status === 401) {
+      const errorCode = error.response?.data?.code;
+      const voiceAuthErrors = new Set([
+        'NO_VOICE_TOKEN',
+        'INVALID_VOICE_SESSION',
+        'VOICE_SESSION_EXPIRED',
+        'SESSION_MISMATCH'
+      ]);
+
+      if (errorCode && voiceAuthErrors.has(errorCode)) {
+        return Promise.reject(error.response?.data || error);
+      }
+
       const hadToken = !!localStorage.getItem('auth_token');
       localStorage.removeItem('auth_token');
       localStorage.removeItem('user_data');

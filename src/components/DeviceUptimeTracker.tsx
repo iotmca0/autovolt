@@ -28,11 +28,15 @@ interface UptimeStats {
   deviceName: string;
   onlineDuration: number; // in seconds
   offlineDuration: number;
-  lastOnlineAt: string;
-  lastOfflineAt: string;
+  lastOnlineAt: string | null;
+  lastOfflineAt: string | null;
   totalUptime: string;
   totalDowntime: string;
   currentStatus: string; // 'online' or 'offline'
+  currentStatusSince?: string | null;
+  currentStatusDurationSeconds?: number;
+  currentStatusDurationFormatted?: string;
+  lastSeen?: string | null;
 }
 
 interface SwitchStats {
@@ -79,9 +83,10 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
   };
 
   // Format timestamp to readable format
-  const formatTimestamp = (timestamp: string): string => {
+  const formatTimestamp = (timestamp?: string | null): string => {
     if (!timestamp || timestamp === 'N/A') return 'N/A';
-    const date = new Date(timestamp);
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return 'N/A';
     return date.toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -91,10 +96,11 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
   };
 
   // Calculate time elapsed since timestamp
-  const getTimeSince = (timestamp: string): string => {
+  const getTimeSince = (timestamp?: string | null): string => {
     if (!timestamp || timestamp === 'N/A') return 'Unknown';
     const now = new Date();
-    const past = new Date(timestamp);
+  const past = new Date(timestamp);
+  if (Number.isNaN(past.getTime())) return 'Unknown';
     const diffMs = now.getTime() - past.getTime();
     const diffSeconds = Math.floor(diffMs / 1000);
     
@@ -239,6 +245,10 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
               {uptimeStats.map((stat) => {
                 // Determine current status based on which duration is being tracked
                 const isOnline = stat.currentStatus === 'online';
+                const currentStatusSince = stat.currentStatusSince || (isOnline ? stat.lastOnlineAt : stat.lastOfflineAt);
+                const currentStatusDurationDisplay = stat.currentStatusDurationFormatted
+                  || (isOnline ? stat.totalUptime : stat.totalDowntime)
+                  || 'Unknown';
                 
                 return (
                   <div key={stat.deviceId} className="p-4 border rounded-lg space-y-3">
@@ -261,21 +271,21 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                         <div className="space-y-2">
                           <div className="flex justify-between items-center gap-2">
                             <span className="text-sm text-muted-foreground flex-shrink-0">Came Online:</span>
-                            <span className="text-sm font-medium truncate" title={formatTimestamp(stat.lastOnlineAt)}>
-                              {formatTimestamp(stat.lastOnlineAt) !== 'N/A' 
-                                ? formatTimestamp(stat.lastOnlineAt)
+                            <span className="text-sm font-medium truncate" title={currentStatusSince ? formatTimestamp(currentStatusSince) : 'Unknown'}>
+                              {currentStatusSince && formatTimestamp(currentStatusSince) !== 'N/A' 
+                                ? formatTimestamp(currentStatusSince)
                                 : 'Unknown'}
                             </span>
                           </div>
                           <div className="flex justify-between items-center gap-2">
                             <span className="text-sm text-muted-foreground flex-shrink-0">Online For:</span>
                             <span className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400 break-words">
-                              {stat.totalUptime}
+                              {currentStatusDurationDisplay}
                             </span>
                           </div>
                           <div className="text-xs text-center text-muted-foreground mt-2 p-2 bg-green-100 dark:bg-green-900 rounded break-words">
-                            {formatTimestamp(stat.lastOnlineAt) !== 'N/A'
-                              ? `Online since ${getTimeSince(stat.lastOnlineAt)}`
+                            {currentStatusSince && formatTimestamp(currentStatusSince) !== 'N/A'
+                              ? `Online since ${getTimeSince(currentStatusSince)}`
                               : 'No downtime recorded'}
                           </div>
                         </div>
@@ -291,21 +301,21 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                         <div className="space-y-2">
                           <div className="flex justify-between items-center gap-2">
                             <span className="text-sm text-muted-foreground flex-shrink-0">Went Offline:</span>
-                            <span className="text-sm font-medium truncate" title={formatTimestamp(stat.lastOfflineAt)}>
-                              {formatTimestamp(stat.lastOfflineAt) !== 'N/A'
-                                ? formatTimestamp(stat.lastOfflineAt)
+                            <span className="text-sm font-medium truncate" title={currentStatusSince ? formatTimestamp(currentStatusSince) : 'Unknown'}>
+                              {currentStatusSince && formatTimestamp(currentStatusSince) !== 'N/A'
+                                ? formatTimestamp(currentStatusSince)
                                 : 'Unknown'}
                             </span>
                           </div>
                           <div className="flex justify-between items-center gap-2">
                             <span className="text-sm text-muted-foreground">Offline For:</span>
-                            <span className="text-2xl font-bold text-red-600 dark:text-red-400">
-                              {stat.totalDowntime}
+                            <span className="text-2xl font-bold text-red-600 dark:text-red-400 break-words">
+                              {currentStatusDurationDisplay}
                             </span>
                           </div>
                           <div className="text-xs text-center text-muted-foreground mt-2 p-2 bg-red-100 dark:bg-red-900 rounded">
-                            {formatTimestamp(stat.lastOfflineAt) !== 'N/A'
-                              ? `Offline since ${getTimeSince(stat.lastOfflineAt)}`
+                            {currentStatusSince && formatTimestamp(currentStatusSince) !== 'N/A'
+                              ? `Offline since ${getTimeSince(currentStatusSince)}`
                               : 'Connection lost'}
                           </div>
                         </div>

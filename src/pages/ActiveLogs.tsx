@@ -397,12 +397,27 @@ const ActiveLogsPage: React.FC = () => {
           </div>
 
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as LogType)}>
-            <TabsList className="grid w-full grid-cols-5">
-              <TabsTrigger value="activities" className="flex items-center gap-2">Activity Logs</TabsTrigger>
-              <TabsTrigger value="manual-switches" className="flex items-center gap-2">Manual Switches</TabsTrigger>
-              <TabsTrigger value="web-switches" className="flex items-center gap-2">Web Switches</TabsTrigger>
-              <TabsTrigger value="schedule-switches" className="flex items-center gap-2">Schedule Switches</TabsTrigger>
-              <TabsTrigger value="device-status" className="flex items-center gap-2">Device Status</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 gap-1">
+              <TabsTrigger value="activities" className="flex items-center gap-1 text-xs md:text-sm px-2 py-1.5">
+                <span className="hidden md:inline">Activity Logs</span>
+                <span className="md:hidden">Activity</span>
+              </TabsTrigger>
+              <TabsTrigger value="manual-switches" className="flex items-center gap-1 text-xs md:text-sm px-2 py-1.5">
+                <span className="hidden md:inline">Manual Switches</span>
+                <span className="md:hidden">Manual</span>
+              </TabsTrigger>
+              <TabsTrigger value="web-switches" className="flex items-center gap-1 text-xs md:text-sm px-2 py-1.5">
+                <span className="hidden md:inline">Web Switches</span>
+                <span className="md:hidden">Web</span>
+              </TabsTrigger>
+              <TabsTrigger value="schedule-switches" className="flex items-center gap-1 text-xs md:text-sm px-2 py-1.5">
+                <span className="hidden md:inline">Schedule Switches</span>
+                <span className="md:hidden">Schedule</span>
+              </TabsTrigger>
+              <TabsTrigger value="device-status" className="flex items-center gap-1 text-xs md:text-sm px-2 py-1.5">
+                <span className="hidden md:inline">Device Status</span>
+                <span className="md:hidden">Status</span>
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="activities">
@@ -413,40 +428,40 @@ const ActiveLogsPage: React.FC = () => {
               ) : activityLogs.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">No activity logs found.</div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto -mx-4 md:mx-0">
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="border-b">
-                        <th className="px-4 py-2 text-left">Time</th>
-                        <th className="px-4 py-2 text-left">Action</th>
-                        <th className="px-4 py-2 text-left">Device/Switch</th>
-                        <th className="px-4 py-2 text-left">User/Source</th>
-                        <th className="px-4 py-2 text-left">Location</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Time</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Action</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Device/Switch</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm hidden md:table-cell">User/Source</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm hidden lg:table-cell">Location</th>
                       </tr>
                     </thead>
                     <tbody>
                       {activityLogs.map((log) => (
                         <tr key={log.id || Math.random()} className="border-b hover:bg-muted/50">
-                          <td className="px-4 py-2 whitespace-nowrap">{safeFormatDate(log.timestamp, 'MMM dd, HH:mm:ss')}</td>
-                          <td className="px-4 py-2">
+                          <td className="px-2 md:px-4 py-2 whitespace-nowrap text-xs md:text-sm">{safeFormatDate(log.timestamp, 'MMM dd, HH:mm:ss')}</td>
+                          <td className="px-2 md:px-4 py-2">
                             {(() => {
                               const state = (log as any).newState ? String((log as any).newState).toLowerCase() : (log.action === 'on' ? 'on' : log.action === 'off' ? 'off' : undefined);
-                              return <Badge variant={state === 'on' ? 'default' : 'secondary'}>{state === 'on' ? '🟢 ON' : state === 'off' ? '🔴 OFF' : (log.action || 'unknown').toUpperCase()}</Badge>;
+                              return <Badge variant={state === 'on' ? 'default' : 'secondary'} className="text-xs whitespace-nowrap">{state === 'on' ? '🟢 ON' : state === 'off' ? '🔴 OFF' : (log.action || 'unknown').toUpperCase()}</Badge>;
                           })()}
                           </td>
-                          <td className="px-4 py-2">
-                            <div>
-                              <div className="font-medium">{log.deviceName || '-'}</div>
-                              {log.switchName && <div className="text-xs text-muted-foreground">{log.switchName}</div>}
+                          <td className="px-2 md:px-4 py-2">
+                            <div className="min-w-0">
+                              <div className="font-medium text-xs md:text-sm truncate">{log.deviceName || '-'}</div>
+                              {log.switchName && <div className="text-xs text-muted-foreground truncate">{log.switchName}</div>}
                             </div>
                           </td>
-                          <td className="px-4 py-2">
-                            <div>
-                              {log.userName && <div className="font-medium">{log.userName}</div>}
+                          <td className="px-2 md:px-4 py-2 hidden md:table-cell">
+                            <div className="min-w-0">
+                              {log.userName && <div className="font-medium text-xs md:text-sm truncate">{log.userName}</div>}
                               <div className="text-xs"><Badge variant="outline" className="text-xs">{log.triggeredBy || 'unknown'}</Badge></div>
                             </div>
                           </td>
-                          <td className="px-4 py-2 text-xs text-muted-foreground">{log.location || '-'}</td>
+                          <td className="px-2 md:px-4 py-2 text-xs text-muted-foreground hidden lg:table-cell truncate">{log.location || '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -463,32 +478,32 @@ const ActiveLogsPage: React.FC = () => {
               ) : manualSwitchLogs.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">No manual switch logs found.</div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto -mx-4 md:mx-0">
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="border-b">
-                        <th className="px-4 py-2 text-left">Time</th>
-                        <th className="px-4 py-2 text-left">Device</th>
-                        <th className="px-4 py-2 text-left">Switch</th>
-                        <th className="px-4 py-2 text-left">GPIO Pin</th>
-                        <th className="px-4 py-2 text-left">Action</th>
-                        <th className="px-4 py-2 text-left">Location</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Time</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Device</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Switch</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm hidden md:table-cell">GPIO Pin</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Action</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm hidden lg:table-cell">Location</th>
                       </tr>
                     </thead>
                     <tbody>
                       {manualSwitchLogs.map((log) => (
                         <tr key={log.id || Math.random()} className="border-b hover:bg-muted/50">
-                          <td className="px-4 py-2 whitespace-nowrap">{safeFormatDate(log.timestamp, 'MMM dd, HH:mm:ss')}</td>
-                          <td className="px-4 py-2"><div className="font-medium">{log.deviceName || 'Unknown Device'}</div></td>
-                          <td className="px-4 py-2"><div className="flex items-center gap-2"><Monitor className="w-4 h-4 text-yellow-600" /><span className="font-medium">{log.switchName || 'Unknown Switch'}</span></div></td>
-                          <td className="px-4 py-2"><Badge variant="outline" className="font-mono">GPIO {log.gpioPin ?? 'N/A'}</Badge></td>
-                          <td className="px-4 py-2">
+                          <td className="px-2 md:px-4 py-2 whitespace-nowrap text-xs md:text-sm">{safeFormatDate(log.timestamp, 'MMM dd, HH:mm:ss')}</td>
+                          <td className="px-2 md:px-4 py-2"><div className="font-medium text-xs md:text-sm truncate">{log.deviceName || 'Unknown Device'}</div></td>
+                          <td className="px-2 md:px-4 py-2"><div className="flex items-center gap-1 md:gap-2 min-w-0"><Monitor className="w-3 h-3 md:w-4 md:h-4 text-yellow-600 flex-shrink-0" /><span className="font-medium text-xs md:text-sm truncate">{log.switchName || 'Unknown Switch'}</span></div></td>
+                          <td className="px-2 md:px-4 py-2 hidden md:table-cell"><Badge variant="outline" className="font-mono text-xs">GPIO {log.gpioPin ?? 'N/A'}</Badge></td>
+                          <td className="px-2 md:px-4 py-2">
                             {(() => {
                               const state = log?.newState ? String(log.newState).toLowerCase() : (log.action === 'manual_on' || log.action === 'manual_toggle' ? 'on' : log.action === 'manual_off' ? 'off' : undefined);
-                              return <Badge variant={state === 'on' ? 'default' : 'secondary'}>{state === 'on' ? '🟢 ON' : state === 'off' ? '🔴 OFF' : (log.action || 'unknown')}</Badge>;
+                              return <Badge variant={state === 'on' ? 'default' : 'secondary'} className="text-xs whitespace-nowrap">{state === 'on' ? '🟢 ON' : state === 'off' ? '🔴 OFF' : (log.action || 'unknown')}</Badge>;
                             })()}
                           </td>
-                          <td className="px-4 py-2 text-muted-foreground">{log.location || '-'}</td>
+                          <td className="px-2 md:px-4 py-2 text-muted-foreground text-xs hidden lg:table-cell truncate">{log.location || '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -501,27 +516,27 @@ const ActiveLogsPage: React.FC = () => {
               {webSwitchLogs.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">No web switch logs found.</div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto -mx-4 md:mx-0">
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="border-b">
-                        <th className="px-4 py-2 text-left">Time</th>
-                        <th className="px-4 py-2 text-left">Device</th>
-                        <th className="px-4 py-2 text-left">Switch</th>
-                        <th className="px-4 py-2 text-left">User</th>
-                        <th className="px-4 py-2 text-left">Action</th>
-                        <th className="px-4 py-2 text-left">Location</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Time</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Device</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Switch</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm hidden md:table-cell">User</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Action</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm hidden lg:table-cell">Location</th>
                       </tr>
                     </thead>
                     <tbody>
                       {webSwitchLogs.map((log) => (
                         <tr key={log.id || Math.random()} className="border-b hover:bg-muted/50">
-                          <td className="px-4 py-2 whitespace-nowrap">{safeFormatDate(log.timestamp, 'MMM dd, HH:mm:ss')}</td>
-                          <td className="px-4 py-2"><div className="font-medium">{log.deviceName || 'Unknown Device'}</div></td>
-                          <td className="px-4 py-2"><div className="flex items-center gap-2"><Monitor className="w-4 h-4 text-green-600" /><span className="font-medium">{log.switchName || 'Unknown Switch'}</span></div></td>
-                          <td className="px-4 py-2"><div className="font-medium">{log.userName || 'Unknown User'}</div>{log.ipAddress && <div className="text-xs text-muted-foreground">{log.ipAddress}</div>}</td>
-                          <td className="px-4 py-2"><Badge variant="outline" className={`${log.newState === 'on' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{log.newState === 'on' ? '🟢 ON' : '🔴 OFF'}</Badge></td>
-                          <td className="px-4 py-2 text-muted-foreground">{log.location || '-'}</td>
+                          <td className="px-2 md:px-4 py-2 whitespace-nowrap text-xs md:text-sm">{safeFormatDate(log.timestamp, 'MMM dd, HH:mm:ss')}</td>
+                          <td className="px-2 md:px-4 py-2"><div className="font-medium text-xs md:text-sm truncate">{log.deviceName || 'Unknown Device'}</div></td>
+                          <td className="px-2 md:px-4 py-2"><div className="flex items-center gap-1 md:gap-2 min-w-0"><Monitor className="w-3 h-3 md:w-4 md:h-4 text-green-600 flex-shrink-0" /><span className="font-medium text-xs md:text-sm truncate">{log.switchName || 'Unknown Switch'}</span></div></td>
+                          <td className="px-2 md:px-4 py-2 hidden md:table-cell"><div className="font-medium text-xs md:text-sm truncate">{log.userName || 'Unknown User'}</div>{log.ipAddress && <div className="text-xs text-muted-foreground truncate">{log.ipAddress}</div>}</td>
+                          <td className="px-2 md:px-4 py-2"><Badge variant="outline" className={`text-xs whitespace-nowrap ${log.newState === 'on' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{log.newState === 'on' ? '🟢 ON' : '🔴 OFF'}</Badge></td>
+                          <td className="px-2 md:px-4 py-2 text-muted-foreground text-xs hidden lg:table-cell truncate">{log.location || '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -534,27 +549,27 @@ const ActiveLogsPage: React.FC = () => {
               {scheduleSwitchLogs.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">No schedule switch logs found.</div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto -mx-4 md:mx-0">
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="border-b">
-                        <th className="px-4 py-2 text-left">Time</th>
-                        <th className="px-4 py-2 text-left">Device</th>
-                        <th className="px-4 py-2 text-left">Switch</th>
-                        <th className="px-4 py-2 text-left">Schedule</th>
-                        <th className="px-4 py-2 text-left">Action</th>
-                        <th className="px-4 py-2 text-left">Location</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Time</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Device</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Switch</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm hidden md:table-cell">Schedule</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Action</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm hidden lg:table-cell">Location</th>
                       </tr>
                     </thead>
                     <tbody>
                       {scheduleSwitchLogs.map((log) => (
                         <tr key={log.id || Math.random()} className="border-b hover:bg-muted/50">
-                          <td className="px-4 py-2 whitespace-nowrap">{safeFormatDate(log.timestamp, 'MMM dd, HH:mm:ss')}</td>
-                          <td className="px-4 py-2"><div className="font-medium">{log.deviceName || 'Unknown Device'}</div></td>
-                          <td className="px-4 py-2"><div className="flex items-center gap-2"><Clock className="w-4 h-4 text-purple-600" /><span className="font-medium">{log.switchName || 'Unknown Switch'}</span></div></td>
-                          <td className="px-4 py-2"><div className="font-medium">{log.scheduleName || 'Unknown Schedule'}</div><div className="text-xs text-muted-foreground">Trigger: {safeFormatDate(log.triggerTime, 'MMM dd, HH:mm')}</div></td>
-                          <td className="px-4 py-2"><Badge variant="outline" className={`${log.newState === 'on' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{log.newState === 'on' ? '🟢 ON' : '🔴 OFF'}</Badge></td>
-                          <td className="px-4 py-2 text-muted-foreground">{log.location || '-'}</td>
+                          <td className="px-2 md:px-4 py-2 whitespace-nowrap text-xs md:text-sm">{safeFormatDate(log.timestamp, 'MMM dd, HH:mm:ss')}</td>
+                          <td className="px-2 md:px-4 py-2"><div className="font-medium text-xs md:text-sm truncate">{log.deviceName || 'Unknown Device'}</div></td>
+                          <td className="px-2 md:px-4 py-2"><div className="flex items-center gap-1 md:gap-2 min-w-0"><Clock className="w-3 h-3 md:w-4 md:h-4 text-purple-600 flex-shrink-0" /><span className="font-medium text-xs md:text-sm truncate">{log.switchName || 'Unknown Switch'}</span></div></td>
+                          <td className="px-2 md:px-4 py-2 hidden md:table-cell"><div className="font-medium text-xs md:text-sm truncate">{log.scheduleName || 'Unknown Schedule'}</div><div className="text-xs text-muted-foreground truncate">Trigger: {safeFormatDate(log.triggerTime, 'MMM dd, HH:mm')}</div></td>
+                          <td className="px-2 md:px-4 py-2"><Badge variant="outline" className={`text-xs whitespace-nowrap ${log.newState === 'on' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{log.newState === 'on' ? '🟢 ON' : '🔴 OFF'}</Badge></td>
+                          <td className="px-2 md:px-4 py-2 text-muted-foreground text-xs hidden lg:table-cell truncate">{log.location || '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -567,29 +582,29 @@ const ActiveLogsPage: React.FC = () => {
               {deviceStatusLogs.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">No device status logs found.</div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto -mx-4 md:mx-0">
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="border-b">
-                        <th className="px-4 py-2 text-left">Time</th>
-                        <th className="px-4 py-2 text-left">Device</th>
-                        <th className="px-4 py-2 text-left">Online Status</th>
-                        <th className="px-4 py-2 text-left">Signal/Temp</th>
-                        <th className="px-4 py-2 text-left">Switches</th>
-                        <th className="px-4 py-2 text-left">Alerts</th>
-                        <th className="px-4 py-2 text-left">Response Time</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Time</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Device</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm">Online Status</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm hidden md:table-cell">Signal/Temp</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm hidden md:table-cell">Switches</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm hidden lg:table-cell">Alerts</th>
+                        <th className="px-2 md:px-4 py-2 text-left text-xs md:text-sm hidden lg:table-cell">Response Time</th>
                       </tr>
                     </thead>
                     <tbody>
                       {deviceStatusLogs.map((log) => (
                         <tr key={log.id || Math.random()} className="border-b hover:bg-muted/50">
-                          <td className="px-4 py-2 whitespace-nowrap">{safeFormatDate(log.timestamp, 'MMM dd, HH:mm:ss')}</td>
-                          <td className="px-4 py-2"><div><div className="font-medium">{log.deviceName || '-'}</div>{log.deviceMac && <div className="text-xs text-muted-foreground">{log.deviceMac}</div>}</div></td>
-                          <td className="px-4 py-2"><Badge variant={safe(log, 'deviceStatus.isOnline', false) ? 'default' : 'destructive'}>{safe(log, 'deviceStatus.isOnline', false) ? <>🟢 Online</> : <>🔴 Offline</>}</Badge></td>
-                          <td className="px-4 py-2 text-xs"><div>{safe(log, 'deviceStatus.wifiSignalStrength') && <div>Signal: {safe(log, 'deviceStatus.wifiSignalStrength')}dBm</div>}{safe(log, 'deviceStatus.temperature') && <div>Temp: {safe(log, 'deviceStatus.temperature')}°C</div>}</div></td>
-                          <td className="px-4 py-2 text-xs">{log.summary && <div><div>On: {safe(log, 'summary.totalSwitchesOn', 0)}</div><div>Off: {safe(log, 'summary.totalSwitchesOff', 0)}</div></div>}</td>
-                          <td className="px-4 py-2">{log.alerts && log.alerts.length > 0 ? <Badge variant="destructive">{log.alerts.length} Alert{log.alerts.length > 1 ? 's' : ''}</Badge> : <Badge variant="default">No Alerts</Badge>}</td>
-                          <td className="px-4 py-2 text-xs">{safe(log, 'deviceStatus.responseTime') ? `${safe(log, 'deviceStatus.responseTime')}ms` : '-'}</td>
+                          <td className="px-2 md:px-4 py-2 whitespace-nowrap text-xs md:text-sm">{safeFormatDate(log.timestamp, 'MMM dd, HH:mm:ss')}</td>
+                          <td className="px-2 md:px-4 py-2"><div><div className="font-medium text-xs md:text-sm truncate">{log.deviceName || '-'}</div>{log.deviceMac && <div className="text-xs text-muted-foreground truncate">{log.deviceMac}</div>}</div></td>
+                          <td className="px-2 md:px-4 py-2"><Badge variant={safe(log, 'deviceStatus.isOnline', false) ? 'default' : 'destructive'} className="text-xs whitespace-nowrap">{safe(log, 'deviceStatus.isOnline', false) ? <>🟢 Online</> : <>🔴 Offline</>}</Badge></td>
+                          <td className="px-2 md:px-4 py-2 text-xs hidden md:table-cell"><div>{safe(log, 'deviceStatus.wifiSignalStrength') && <div className="truncate">Signal: {safe(log, 'deviceStatus.wifiSignalStrength')}dBm</div>}{safe(log, 'deviceStatus.temperature') && <div className="truncate">Temp: {safe(log, 'deviceStatus.temperature')}°C</div>}</div></td>
+                          <td className="px-2 md:px-4 py-2 text-xs hidden md:table-cell">{log.summary && <div><div>On: {safe(log, 'summary.totalSwitchesOn', 0)}</div><div>Off: {safe(log, 'summary.totalSwitchesOff', 0)}</div></div>}</td>
+                          <td className="px-2 md:px-4 py-2 hidden lg:table-cell">{log.alerts && log.alerts.length > 0 ? <Badge variant="destructive" className="text-xs">{log.alerts.length} Alert{log.alerts.length > 1 ? 's' : ''}</Badge> : <Badge variant="default" className="text-xs">No Alerts</Badge>}</td>
+                          <td className="px-2 md:px-4 py-2 text-xs hidden lg:table-cell">{safe(log, 'deviceStatus.responseTime') ? `${safe(log, 'deviceStatus.responseTime')}ms` : '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -601,20 +616,20 @@ const ActiveLogsPage: React.FC = () => {
 
           {/* Pagination controls */}
           <div className="mt-4">
-            <div className="flex items-center justify-between w-full">
+            <div className="flex flex-col md:flex-row items-center justify-between w-full gap-4">
               <div className="flex items-center gap-2">
                 <Button variant="ghost" size="sm" onClick={goToPrevPage} disabled={currentPage <= 1}>
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
 
-                <div className="text-sm text-muted-foreground">Page {currentPage} of {paginationMeta.totalPages || 1}</div>
+                <div className="text-sm text-muted-foreground whitespace-nowrap">Page {currentPage} of {paginationMeta.totalPages || 1}</div>
 
                 <Button variant="ghost" size="sm" onClick={goToNextPage} disabled={currentPage >= (paginationMeta.totalPages || 1)}>
                   <ChevronRight className="w-4 h-4" />
                 </Button>
 
-                <div className="ml-4 flex items-center gap-2">
-                  <label className="text-sm text-muted-foreground">Per page</label>
+                <div className="ml-2 md:ml-4 flex items-center gap-2">
+                  <label className="text-sm text-muted-foreground whitespace-nowrap">Per page</label>
                   <select className="bg-transparent border border-border rounded px-2 py-1 text-sm" value={itemsPerPage} onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}>
                     <option value={25}>25</option>
                     <option value={50}>50</option>
@@ -624,7 +639,7 @@ const ActiveLogsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="text-sm text-muted-foreground">
+              <div className="text-sm text-muted-foreground whitespace-nowrap">
                 {paginationMeta.total > 0 ? (
                   (() => {
                     const start = (currentPage - 1) * itemsPerPage + 1;
