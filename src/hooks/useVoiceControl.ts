@@ -21,6 +21,7 @@ export const useVoiceControl = (): VoiceControlHook => {
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [recognition, setRecognition] = useState<any>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Check if Web Speech API is supported
   const isSupported = typeof window !== 'undefined' && 
@@ -36,7 +37,7 @@ export const useVoiceControl = (): VoiceControlHook => {
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     const recognitionInstance = new SpeechRecognition();
     
-    recognitionInstance.continuous = false;
+  recognitionInstance.continuous = false; // set to true for continuous listening
     recognitionInstance.interimResults = true;
     recognitionInstance.lang = 'en-US';
     recognitionInstance.maxAlternatives = 1;
@@ -63,6 +64,7 @@ export const useVoiceControl = (): VoiceControlHook => {
     recognitionInstance.onend = () => {
       console.log('🛑 Voice recognition ended');
       setIsRecording(false);
+      setIsProcessing(false);
     };
 
     setRecognition(recognitionInstance);
@@ -89,6 +91,16 @@ export const useVoiceControl = (): VoiceControlHook => {
     try {
       setTranscript('');
       setError(null);
+      // Prompt for permission explicitly
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+        setHasPermission(true);
+      } catch (permErr) {
+        setHasPermission(false);
+        setError('Microphone permission denied. Please enable it in browser settings.');
+        return;
+      }
+      setIsProcessing(true);
       recognition.start();
     } catch (err: any) {
       console.error('❌ Error starting recording:', err);
@@ -109,6 +121,8 @@ export const useVoiceControl = (): VoiceControlHook => {
 
     try {
       recognition.stop();
+      // Slight debounce to allow final onresult
+      setTimeout(() => setIsProcessing(false), 200);
       return transcript;
     } catch (err: any) {
       console.error('❌ Error stopping recording:', err);

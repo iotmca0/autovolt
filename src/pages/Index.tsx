@@ -15,7 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { apiService } from '@/services/api';
+import { apiService, energyAPI } from '@/services/api';
 import { DeviceStats } from '@/types';
 
 const Index = () => {
@@ -141,25 +141,62 @@ const Index = () => {
           }
         }
         
-        // Fetch monthly chart data (last 6 months) - use real data from analytics
+        // Fetch monthly chart data (last 6 months) - prefer dedicated endpoint, fallback to aggregates
         try {
           const monthlyChartResponse = await apiService.get('/analytics/energy/monthly-chart');
-          if (monthlyChartResponse.data && Array.isArray(monthlyChartResponse.data)) {
-            // Filter out months with zero data only if all months are zero
-            const hasAnyData = monthlyChartResponse.data.some(month => month.consumption > 0 || month.cost > 0);
-            if (hasAnyData) {
-              setMonthlyChartData(monthlyChartResponse.data);
-            } else {
-              // No real data available yet, show empty state
-              setMonthlyChartData([]);
+          let data = Array.isArray(monthlyChartResponse.data) ? monthlyChartResponse.data : [];
+          const hasAnyData = data.some((m: any) => (m?.consumption || 0) > 0 || (m?.cost || 0) > 0);
+
+          if (!hasAnyData) {
+            // Fallback: derive from monthly breakdown aggregates
+            const now = new Date();
+            const monthsToFetch = Array.from({ length: 6 }, (_, i) => {
+              const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+              return { year: d.getFullYear(), month: d.getMonth() + 1, label: d.toLocaleString('default', { month: 'short', year: 'numeric' }) };
+            });
+
+            const fallbackResults: Array<{ month: string; consumption: number; cost: number }> = [];
+            for (const m of monthsToFetch) {
+              try {
+                const res = await energyAPI.monthlyBreakdown(m.year, m.month);
+                const totalKwh = res.data?.total_kwh || 0;
+                const totalCost = res.data?.total_cost || 0;
+                fallbackResults.push({ month: m.label, consumption: Number(totalKwh.toFixed?.(2) ?? totalKwh), cost: Number(totalCost.toFixed?.(2) ?? totalCost) });
+              } catch (e) {
+                fallbackResults.push({ month: m.label, consumption: 0, cost: 0 });
+              }
             }
+
+            const anyFallbackData = fallbackResults.some(m => m.consumption > 0 || m.cost > 0);
+            setMonthlyChartData(anyFallbackData ? fallbackResults : []);
           } else {
-            setMonthlyChartData([]);
+            setMonthlyChartData(data);
           }
         } catch (chartError) {
           console.error('Error fetching monthly chart data:', chartError);
-          // Show empty state if API fails
-          setMonthlyChartData([]);
+          // Fallback to aggregates even if dedicated endpoint failed (e.g., backend partial routing)
+          try {
+            const now = new Date();
+            const monthsToFetch = Array.from({ length: 6 }, (_, i) => {
+              const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+              return { year: d.getFullYear(), month: d.getMonth() + 1, label: d.toLocaleString('default', { month: 'short', year: 'numeric' }) };
+            });
+            const fallbackResults: Array<{ month: string; consumption: number; cost: number }> = [];
+            for (const m of monthsToFetch) {
+              try {
+                const res = await energyAPI.monthlyBreakdown(m.year, m.month);
+                const totalKwh = res.data?.total_kwh || 0;
+                const totalCost = res.data?.total_cost || 0;
+                fallbackResults.push({ month: m.label, consumption: Number(totalKwh.toFixed?.(2) ?? totalKwh), cost: Number(totalCost.toFixed?.(2) ?? totalCost) });
+              } catch (e) {
+                fallbackResults.push({ month: m.label, consumption: 0, cost: 0 });
+              }
+            }
+            const anyFallbackData = fallbackResults.some(m => m.consumption > 0 || m.cost > 0);
+            setMonthlyChartData(anyFallbackData ? fallbackResults : []);
+          } catch (e2) {
+            setMonthlyChartData([]);
+          }
         }
       } catch (error) {
         console.error('Error fetching energy summary:', error);
@@ -586,7 +623,7 @@ const Index = () => {
               <Activity className="w-8 h-8 animate-spin text-primary" />
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Today's Usage */}
               <div className="flex flex-col items-center justify-center p-4 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 rounded-lg shadow-sm border border-blue-200">
                 <div className="flex items-center gap-2 mb-3">
@@ -598,20 +635,6 @@ const Index = () => {
                 </div>
                 <div className="text-sm text-blue-700 dark:text-blue-300 break-words text-center">
                   Cost: ₹{dailyTotals.totalCost.toFixed(2)}
-                </div>
-              </div>
-              
-              {/* This Month */}
-              <div className="flex flex-col items-center justify-center p-4 bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-950 dark:to-orange-900 rounded-lg shadow-sm border border-orange-200">
-                <div className="flex items-center gap-2 mb-3">
-                  <TrendingUp className="h-5 w-5 text-orange-600 flex-shrink-0" />
-                  <span className="text-sm font-semibold text-orange-900 dark:text-orange-100">This Month</span>
-                </div>
-                <div className="text-2xl sm:text-3xl font-bold text-orange-600 mb-1 break-words text-center">
-                  {monthlyTotals.totalConsumption.toFixed(3)} kWh
-                </div>
-                <div className="text-sm text-orange-700 dark:text-orange-300 break-words text-center">
-                  Cost: ₹{monthlyTotals.totalCost.toFixed(2)}
                 </div>
               </div>
               

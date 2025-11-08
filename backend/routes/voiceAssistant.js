@@ -138,6 +138,7 @@ router.post('/session/revoke-all', auth, async (req, res) => {
 router.post('/voice/command', auth, voiceAuth, voiceRateLimit(100, 15 * 60 * 1000), async (req, res) => {
   try {
     const { command, deviceName, switchName, assistant } = req.body;
+    const requestStart = Date.now();
 
     logger.info('[Voice Assistant] Authenticated voice command:', {
       user: req.user.name,
@@ -147,7 +148,8 @@ router.post('/voice/command', auth, voiceAuth, voiceRateLimit(100, 15 * 60 * 100
       assistant
     });
 
-    const result = await processVoiceCommand(command, deviceName, switchName, req.user);
+  const result = await processVoiceCommand(command, deviceName, switchName, req.user);
+  const latencyMs = Date.now() - requestStart;
 
     const assistantSource = assistant || 'web';
     const operationsForLog = Array.isArray(result.operations) && result.operations.length
@@ -202,6 +204,7 @@ router.post('/voice/command', auth, voiceAuth, voiceRateLimit(100, 15 * 60 * 100
           success: op.success,
           error: op.error,
           message: op.message,
+          latencyMs,
           operationsCount: operationsForLog.length,
           interpretation: result.interpretation,
           sessionInfo: {
@@ -221,6 +224,38 @@ router.post('/voice/command', auth, voiceAuth, voiceRateLimit(100, 15 * 60 * 100
       message: 'Voice command failed',
       error: error.message
     });
+  }
+});
+
+// ============================================
+// CLIENT VOICE EVENT LOGGING (Analytics)
+// ============================================
+// Lightweight endpoint to capture client-side voice assistant events for UX improvement.
+// Stores logs in ActivityLog with action = 'voice_event'. Non-blocking; failure shouldn't break client.
+router.post('/log', auth, async (req, res) => {
+  try {
+    const { level, stage, message, data, ts } = req.body || {};
+    if (!message) {
+      return res.status(400).json({ success: false, message: 'message required' });
+    }
+
+    await ActivityLog.create({
+      action: 'voice_event',
+      triggeredBy: 'voice_assistant',
+      userId: req.user.id,
+      userName: req.user.name,
+      context: {
+        level,
+        stage,
+        message,
+        data,
+        clientTimestamp: ts || Date.now()
+      }
+    });
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('[Voice Assistant] Voice event log error:', error);
+    res.status(500).json({ success: false, message: 'Log failed', error: error.message });
   }
 });
 

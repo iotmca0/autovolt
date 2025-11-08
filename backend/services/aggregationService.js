@@ -24,6 +24,55 @@ class AggregationService {
   }
   
   /**
+   * Initialize aggregation service.
+   * Performs immediate aggregation for today + current month so dashboards have data
+   * and schedules cron jobs for ongoing daily + monthly aggregation.
+   */
+  async initialize(options = {}) {
+    try {
+      const { skipInitial = false } = options;
+      logger.info('[Aggregation] initialize() starting (skipInitial=%s)', skipInitial);
+      const cron = require('node-cron');
+      // Schedule daily aggregation at 00:10 IST (allow ledger to finish day rollover)
+      cron.schedule('10 0 * * *', async () => {
+        try {
+          logger.info('[Aggregation] Daily scheduled aggregation starting');
+          await this.aggregateToday();
+          logger.info('[Aggregation] Daily scheduled aggregation complete');
+          // Also refresh current month totals after daily completes
+          const now = new Date();
+          await this.aggregateMonthly(now.getFullYear(), now.getMonth() + 1);
+          logger.info('[Aggregation] Monthly partial refresh complete');
+        } catch (err) {
+          logger.error('[Aggregation] Scheduled daily aggregation error:', err);
+        }
+      }, { timezone: 'Asia/Kolkata' });
+      
+      // Schedule full month aggregation on first day of month at 00:20 IST
+      cron.schedule('20 0 1 * *', async () => {
+        try {
+          const now = new Date();
+          logger.info('[Aggregation] First-of-month full monthly aggregation starting');
+          await this.aggregateMonthly(now.getFullYear(), now.getMonth() + 1);
+          logger.info('[Aggregation] First-of-month full monthly aggregation complete');
+        } catch (err) {
+          logger.error('[Aggregation] First-of-month aggregation error:', err);
+        }
+      }, { timezone: 'Asia/Kolkata' });
+      
+      if (!skipInitial) {
+        // Perform immediate aggregation so UI doesn't show zeros on fresh start
+        await this.aggregateToday();
+        await this.aggregateCurrentMonth();
+        logger.info('[Aggregation] Initial aggregation (today + month) complete');
+      }
+      logger.info('[Aggregation] initialize() completed successfully');
+    } catch (error) {
+      logger.error('[Aggregation] initialize() failed:', error);
+    }
+  }
+  
+  /**
    * Convert UTC date to local timezone start-of-day
    */
   getLocalDayStart(date) {

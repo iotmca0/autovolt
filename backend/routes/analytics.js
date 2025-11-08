@@ -4,6 +4,12 @@
 const express = require('express');
 const router = express.Router();
 const metricsService = require('../metricsService');
+const {
+  getDailyBreakdown,
+  hourlyBreakdown,
+  getMonthlyBreakdown,
+  getYearlyBreakdown
+} = require('../services/energyBreakdownService');
 const { handleValidationErrors } = require('../middleware/validationHandler');
 const { param } = require('express-validator');
 
@@ -31,135 +37,123 @@ router.get('/dashboard', async (req, res) => {
 
 // Get monthly energy consumption chart data (last 6 months)
 // NOTE: This route MUST be defined BEFORE /energy/:timeframe to avoid matching conflicts
+// UPDATED: Now uses MonthlyAggregate (NEW POWER SYSTEM) with FALLBACK to match energy summary cards
 router.get('/energy/monthly-chart', async (req, res) => {
   try {
-    const Device = require('../models/Device');
-    const ActivityLog = require('../models/ActivityLog');
+    const MonthlyAggregate = require('../models/MonthlyAggregate');
     const PowerSettings = require('../models/PowerSettings');
+    const Device = require('../models/Device');
+    const moment = require('moment-timezone');
+    const timezone = 'Asia/Kolkata';
     
-    console.log('[Monthly Chart] Starting monthly chart data calculation...');
+    console.log('[Monthly Chart] Using NEW POWER SYSTEM (MonthlyAggregate) with FALLBACK - matches energy summary cards');
     
-    // Get electricity rate
+    // Get electricity rate from power settings (same as energy summary)
     let electricityRate = 7.0; // Default ₹7 per kWh
-    let devicePowerRatings = {
-      light: 40,
-      fan: 75,
-      projector: 200,
-      ac: 1500,
-      outlet: 100,
-      relay: 50
-    };
-    
     try {
       const settings = await PowerSettings.findOne();
-      if (settings) {
-        if (settings.electricityPrice) {
-          electricityRate = settings.electricityPrice;
-        }
-        if (settings.devicePowerRatings) {
-          devicePowerRatings = { ...devicePowerRatings, ...settings.devicePowerRatings };
-        }
+      if (settings && settings.electricityPrice) {
+        electricityRate = settings.electricityPrice;
       }
     } catch (err) {
-      console.log('[Monthly Chart] Using default electricity rate and power settings');
+      console.log('[Monthly Chart] Using default electricity rate:', electricityRate);
     }
-    
-    console.log('[Monthly Chart] Using electricity rate:', electricityRate, '₹/kWh');
     
     const monthlyData = [];
     const now = new Date();
+    const currentMonthNum = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
     
     // Generate data for last 6 months
     for (let i = 5; i >= 0; i--) {
       const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const year = targetDate.getFullYear();
-      const month = targetDate.getMonth();
-      
-      // Calculate start and end of month
-      const startOfMonth = new Date(year, month, 1);
-      const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59, 999);
+      const month = targetDate.getMonth() + 1; // MongoDB months are 1-12
       
       // Get month name
       const monthName = targetDate.toLocaleString('default', { month: 'short', year: 'numeric' });
       
-      console.log(`[Monthly Chart] Processing ${monthName} (${startOfMonth.toISOString()} to ${endOfMonth.toISOString()})`);
+      console.log(`[Monthly Chart] Fetching ${monthName} from MonthlyAggregate (year=${year}, month=${month})`);
       
       try {
+        // Get all monthly aggregates for this month (all classrooms/devices)
+        const aggregates = await MonthlyAggregate.find({ 
+          year: year,
+          month: month
+        }).lean();
+        
         let totalConsumption = 0;
+        let totalCost = 0;
+        let usedFallback = false;
         
-        // Get all devices
-        const devices = await Device.find({}).lean();
-        console.log(`[Monthly Chart] Found ${devices.length} devices for ${monthName}`);
-        
-        // Calculate consumption for each device using ActivityLog
-        for (const device of devices) {
-          for (const sw of device.switches || []) {
-            // Get all ON logs for this switch in this month
-            const onLogs = await ActivityLog.find({
-              deviceId: device._id,
-              switchId: sw.id,
-              action: 'on',
-              timestamp: { $gte: startOfMonth, $lte: endOfMonth }
-            }).sort({ timestamp: 1 }).lean();
+        if (aggregates.length === 0) {
+          // FALLBACK: No aggregates found - use calculatePreciseEnergyConsumption (same as energy summary)
+          console.log(`[Monthly Chart] ${monthName}: No aggregates found, using FALLBACK calculation`);
+          usedFallback = true;
+          
+          const monthStartMoment = moment().tz(timezone).year(year).month(month - 1).startOf('month');
+          const monthEndMoment = moment().tz(timezone).year(year).month(month - 1).endOf('month');
+          
+          // If it's a future month, skip
+          if (monthStartMoment.isAfter(moment().tz(timezone))) {
+            console.log(`[Monthly Chart] ${monthName}: Future month, skipping`);
+            monthlyData.push({ month: monthName, consumption: 0, cost: 0 });
+            continue;
+          }
+          
+          // If it's current month, only calculate up to now
+          const endDate = (month === currentMonthNum && year === currentYear) 
+            ? new Date() 
+            : monthEndMoment.toDate();
+          
+          const devices = await Device.find({}, { switches: 1, status: 1, onlineSince: 1, classroom: 1, name: 1 }).lean();
+          
+          // Calculate consumption for each day in the month
+          const daysInRange = Math.min(monthEndMoment.date(), moment(endDate).date());
+          
+          for (const device of devices) {
+            let deviceConsumption = 0;
             
-            if (onLogs.length > 0) {
-              console.log(`[Monthly Chart] Device ${device.name}, Switch ${sw.name}: Found ${onLogs.length} ON events in ${monthName}`);
-            }
+            // Use calculatePreciseEnergyConsumption for each device
+            const { calculatePreciseEnergyConsumption, calculateDevicePowerConsumption, calculateOfflineDevicePowerConsumption } = require('../metricsService');
             
-            // Calculate total ON duration
-            for (const onLog of onLogs) {
-              const onTime = new Date(onLog.timestamp);
-              
-              // Find the next OFF log after this ON
-              const offLog = await ActivityLog.findOne({
-                deviceId: device._id,
-                switchId: sw.id,
-                action: 'off',
-                timestamp: { $gt: onTime, $lte: endOfMonth }
-              }).sort({ timestamp: 1 }).lean();
-              
-              let offTime;
-              if (offLog) {
-                offTime = new Date(offLog.timestamp);
-              } else {
-                // If still on at end of month, use end of month
-                // or current time if it's the current month
-                if (month === now.getMonth() && year === now.getFullYear()) {
-                  // Check if switch is currently on
-                  const currentDevice = await Device.findById(device._id);
-                  const currentSwitch = currentDevice?.switches.find(s => s.id === sw.id);
-                  if (currentSwitch && currentSwitch.state) {
-                    offTime = now;
-                  } else {
-                    continue; // Skip if we can't find matching OFF
-                  }
-                } else {
-                  offTime = endOfMonth;
+            deviceConsumption = await calculatePreciseEnergyConsumption(
+              device._id,
+              monthStartMoment.toDate(),
+              endDate
+            );
+            
+            // If no consumption from ActivityLog and device is offline with active switches, estimate
+            if (deviceConsumption === 0 && device.status === 'offline') {
+              const activeSwitches = device.switches.filter(s => s.state === true);
+              if (activeSwitches.length > 0) {
+                const devicePower = calculateOfflineDevicePowerConsumption(device);
+                if (devicePower > 0) {
+                  // Estimate for this month
+                  const hoursInMonth = daysInRange * 24;
+                  deviceConsumption = (devicePower * hoursInMonth) / 1000;
+                  console.log(`[Monthly Chart] ${monthName} - ${device.name}: Offline estimation ${devicePower}W × ${hoursInMonth}h = ${deviceConsumption.toFixed(3)} kWh`);
                 }
               }
-              
-              // Calculate duration in hours
-              const durationMs = offTime.getTime() - onTime.getTime();
-              const durationHours = durationMs / (1000 * 60 * 60);
-              
-              // Get power rating for this switch type
-              const powerRating = devicePowerRatings[sw.type] || devicePowerRatings.relay || 50;
-              
-              // Calculate consumption in kWh
-              const consumption = (durationHours * powerRating) / 1000;
-              totalConsumption += consumption;
-              
-              if (consumption > 0) {
-                console.log(`[Monthly Chart] ${device.name} - ${sw.name}: ${durationHours.toFixed(2)}h × ${powerRating}W = ${consumption.toFixed(4)} kWh`);
-              }
             }
+            
+            if (deviceConsumption > 0) {
+              totalConsumption += deviceConsumption;
+              console.log(`[Monthly Chart] ${monthName} - ${device.name}: ${deviceConsumption.toFixed(3)} kWh`);
+            }
+          }
+          
+          totalCost = totalConsumption * electricityRate;
+        } else {
+          // Use aggregates (NEW POWER SYSTEM)
+          for (const agg of aggregates) {
+            const kwh = (agg.total_kwh || agg.total_wh / 1000 || 0);
+            totalConsumption += kwh;
+            totalCost += (agg.cost_at_calc_time || (kwh * electricityRate));
           }
         }
         
-        // Calculate cost
-        const totalCost = totalConsumption * electricityRate;
-        
-        console.log(`[Monthly Chart] ${monthName} Total: ${totalConsumption.toFixed(2)} kWh, ₹${totalCost.toFixed(2)}`);
+        console.log(`[Monthly Chart] ${monthName}: ${totalConsumption.toFixed(3)} kWh, ₹${totalCost.toFixed(2)} (${aggregates.length} aggregates, fallback=${usedFallback})`);
         
         monthlyData.push({
           month: monthName,
@@ -168,7 +162,7 @@ router.get('/energy/monthly-chart', async (req, res) => {
         });
         
       } catch (err) {
-        console.error(`[Monthly Chart] Error calculating month ${monthName}:`, err);
+        console.error(`[Monthly Chart] Error fetching month ${monthName}:`, err);
         // Add zero data for this month
         monthlyData.push({
           month: monthName,
@@ -178,7 +172,7 @@ router.get('/energy/monthly-chart', async (req, res) => {
       }
     }
     
-    console.log('[Monthly Chart] Final data:', JSON.stringify(monthlyData, null, 2));
+    console.log('[Monthly Chart] Final data (with FALLBACK):', JSON.stringify(monthlyData, null, 2));
     res.json(monthlyData);
   } catch (error) {
     console.error('[Monthly Chart] Error:', error);
@@ -212,6 +206,61 @@ router.get('/energy-summary', async (req, res) => {
   }
 });
 
+// NEW: Detailed daily breakdown (classroom/device filters)
+// /api/analytics/energy-breakdown/daily?date=YYYY-MM-DD&classroom=lab201&deviceId=...
+router.get('/energy-breakdown/daily', async (req, res) => {
+  try {
+    const { date, classroom, deviceId } = req.query;
+    const breakdown = await getDailyBreakdown(date, classroom, deviceId);
+    res.json(breakdown);
+  } catch (error) {
+    console.error('Error getting daily breakdown:', error);
+    res.status(500).json({ error: 'Failed to get daily breakdown' });
+  }
+});
+
+// NEW: Hourly breakdown for a given date (24 buckets)
+router.get('/energy-breakdown/hourly', async (req, res) => {
+  try {
+    const { date, classroom, deviceId } = req.query;
+    const hourly = await hourlyBreakdown(date, classroom, deviceId);
+    res.json(hourly);
+  } catch (error) {
+    console.error('Error getting hourly breakdown:', error);
+    res.status(500).json({ error: 'Failed to get hourly breakdown' });
+  }
+});
+
+// NEW: Monthly breakdown (per-day list from MonthlyAggregate.daily_totals)
+router.get('/energy-breakdown/monthly', async (req, res) => {
+  try {
+    const { year, month, classroom, deviceId } = req.query;
+    if (!year || !month) {
+      return res.status(400).json({ error: 'year and month are required' });
+    }
+    const monthly = await getMonthlyBreakdown(parseInt(year), parseInt(month), classroom, deviceId);
+    res.json(monthly);
+  } catch (error) {
+    console.error('Error getting monthly breakdown:', error);
+    res.status(500).json({ error: 'Failed to get monthly breakdown' });
+  }
+});
+
+// NEW: Yearly breakdown (per-month totals aggregated)
+router.get('/energy-breakdown/yearly', async (req, res) => {
+  try {
+    const { year, classroom } = req.query;
+    if (!year) {
+      return res.status(400).json({ error: 'year is required' });
+    }
+    const yearly = await getYearlyBreakdown(parseInt(year), classroom);
+    res.json(yearly);
+  } catch (error) {
+    console.error('Error getting yearly breakdown:', error);
+    res.status(500).json({ error: 'Failed to get yearly breakdown' });
+  }
+});
+
 // Get energy calendar view data (daily breakdown for a specific month)
 router.get('/energy-calendar/:year/:month', 
   param('year').isInt({ min: 2020, max: 2100 }).withMessage('Invalid year'),
@@ -225,6 +274,207 @@ router.get('/energy-calendar/:year/:month',
   } catch (error) {
     console.error('Error getting energy calendar data:', error);
     res.status(500).json({ error: 'Failed to get energy calendar data' });
+  }
+});
+
+// ==============================
+// Voice Control Analytics (AIML)
+// ==============================
+
+// Summary KPIs for voice usage over a time window
+// GET /api/analytics/voice/summary?days=7
+router.get('/voice/summary', async (req, res) => {
+  try {
+    const { days = 7 } = req.query;
+    const ActivityLog = require('../models/ActivityLog');
+    const since = new Date();
+    since.setDate(since.getDate() - parseInt(days));
+
+    // Fetch voice command logs
+    const voiceCommands = await ActivityLog.find({
+      action: 'voice_command',
+      timestamp: { $gte: since }
+    }, {
+      userId: 1,
+      deviceId: 1,
+      context: 1,
+      timestamp: 1
+    }).lean();
+
+    const totalCommands = voiceCommands.length;
+    let successCount = 0;
+    const byAssistant = {};
+    const users = new Set();
+    const devices = new Set();
+
+    const perDevice = {};
+    let latencyTotal = 0; let latencyCount = 0;
+    for (const cmd of voiceCommands) {
+      users.add(String(cmd.userId || ''));
+      devices.add(String(cmd.deviceId || ''));
+      const assistant = cmd.context?.assistant || 'web';
+      byAssistant[assistant] = (byAssistant[assistant] || 0) + 1;
+      if (cmd.context?.success === true) successCount++;
+      const devId = String(cmd.deviceId || 'unknown');
+      if (!perDevice[devId]) {
+        perDevice[devId] = { total: 0, success: 0, failures: 0, lastCommand: cmd.timestamp, assistants: new Set(), latencySum: 0, latencyCount: 0 };
+      }
+      perDevice[devId].total++;
+      if (cmd.context?.success === true) perDevice[devId].success++; else perDevice[devId].failures++;
+      perDevice[devId].assistants.add(assistant);
+      perDevice[devId].lastCommand = cmd.timestamp;
+      if (typeof cmd.context?.latencyMs === 'number') {
+        perDevice[devId].latencySum += cmd.context.latencyMs;
+        perDevice[devId].latencyCount++;
+        latencyTotal += cmd.context.latencyMs; latencyCount++;
+      }
+    }
+
+    const successRate = totalCommands > 0 ? +(successCount / totalCommands * 100).toFixed(2) : 0;
+    const avgLatencyMs = latencyCount > 0 ? +(latencyTotal / latencyCount).toFixed(1) : 0;
+
+    const devicesExpanded = Object.entries(perDevice).map(([deviceId, data]) => ({
+      deviceId,
+      total: data.total,
+      success: data.success,
+      failures: data.failures,
+      successRate: data.total ? +(data.success / data.total * 100).toFixed(2) : 0,
+      assistants: Array.from(data.assistants),
+      lastCommand: data.lastCommand,
+      avgLatencyMs: data.latencyCount ? +(data.latencySum / data.latencyCount).toFixed(1) : 0
+    })).sort((a,b)=>b.total - a.total);
+
+    res.json({
+      range: { days: parseInt(days) },
+      totals: {
+        totalCommands,
+        successCount,
+        successRate,
+        uniqueUsers: users.has('') ? users.size - 1 : users.size,
+        uniqueDevices: devices.has('') ? devices.size - 1 : devices.size,
+        avgLatencyMs
+      },
+      byAssistant,
+      devices: devicesExpanded
+    });
+  } catch (error) {
+    console.error('Error getting voice summary:', error);
+    res.status(500).json({ error: 'Failed to get voice summary' });
+  }
+});
+
+// Time series of voice commands (hourly or daily)
+// GET /api/analytics/voice/timeseries?granularity=hour&days=7
+router.get('/voice/timeseries', async (req, res) => {
+  try {
+    const { granularity = 'day', days = 7 } = req.query;
+    const ActivityLog = require('../models/ActivityLog');
+    const since = new Date();
+    since.setDate(since.getDate() - parseInt(days));
+
+    const logs = await ActivityLog.find({
+      action: 'voice_command',
+      timestamp: { $gte: since }
+    }, { timestamp: 1, context: 1 }).lean();
+
+    const buckets = {};
+    const formatKey = (d) => {
+      const dt = new Date(d);
+      if (granularity === 'hour') {
+        return dt.toISOString().slice(0, 13) + ':00:00Z'; // hour bucket
+      }
+      return dt.toISOString().slice(0, 10); // day bucket
+    };
+
+    for (const log of logs) {
+      const key = formatKey(log.timestamp);
+      if (!buckets[key]) buckets[key] = { total: 0, success: 0, latencySum: 0, latencyCount: 0 };
+      buckets[key].total += 1;
+      if (log.context?.success === true) buckets[key].success += 1;
+      if (typeof log.context?.latencyMs === 'number') {
+        buckets[key].latencySum += log.context.latencyMs;
+        buckets[key].latencyCount += 1;
+      }
+    }
+
+    const series = Object.keys(buckets).sort().map(k => ({
+      bucket: k,
+      total: buckets[k].total,
+      success: buckets[k].success,
+      successRate: buckets[k].total ? +(buckets[k].success / buckets[k].total * 100).toFixed(2) : 0,
+      avgLatencyMs: buckets[k].latencyCount ? +(buckets[k].latencySum / buckets[k].latencyCount).toFixed(1) : 0
+    }));
+
+    res.json({ granularity, days: parseInt(days), series });
+  } catch (error) {
+    console.error('Error getting voice timeseries:', error);
+    res.status(500).json({ error: 'Failed to get voice timeseries' });
+  }
+});
+
+// Top intents (derived from actionType / desiredState)
+// GET /api/analytics/voice/top-intents?limit=10&days=7
+router.get('/voice/top-intents', async (req, res) => {
+  try {
+    const { limit = 10, days = 7 } = req.query;
+    const ActivityLog = require('../models/ActivityLog');
+    const since = new Date();
+    since.setDate(since.getDate() - parseInt(days));
+
+    const logs = await ActivityLog.find({
+      action: 'voice_command',
+      timestamp: { $gte: since }
+    }, { context: 1 }).lean();
+
+    const intentCounts = {};
+    for (const log of logs) {
+      const actionType = log.context?.actionType || (log.context?.desiredState === true ? 'turn_on' : (log.context?.desiredState === false ? 'turn_off' : 'other'));
+      intentCounts[actionType] = (intentCounts[actionType] || 0) + 1;
+    }
+
+    const top = Object.entries(intentCounts)
+      .map(([intent, count]) => ({ intent, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, parseInt(limit));
+
+    res.json({ days: parseInt(days), top });
+  } catch (error) {
+    console.error('Error getting top intents:', error);
+    res.status(500).json({ error: 'Failed to get top intents' });
+  }
+});
+
+// Top voice errors
+// GET /api/analytics/voice/top-errors?limit=10&days=7
+router.get('/voice/top-errors', async (req, res) => {
+  try {
+    const { limit = 10, days = 7 } = req.query;
+    const ActivityLog = require('../models/ActivityLog');
+    const since = new Date();
+    since.setDate(since.getDate() - parseInt(days));
+
+    const logs = await ActivityLog.find({
+      action: 'voice_command',
+      timestamp: { $gte: since }
+    }, { context: 1 }).lean();
+
+    const errorCounts = {};
+    for (const log of logs) {
+      if (log.context?.success === false) {
+        const key = log.context?.error || log.context?.message || 'Unknown error';
+        errorCounts[key] = (errorCounts[key] || 0) + 1;
+      }
+    }
+
+    const top = Object.entries(errorCounts)
+      .map(([error, count]) => ({ error, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, parseInt(limit));
+
+    res.json({ days: parseInt(days), top });
+  } catch (error) {
+    console.error('Error getting top voice errors:', error);
+    res.status(500).json({ error: 'Failed to get top voice errors' });
   }
 });
 

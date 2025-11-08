@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Info, Settings, RefreshCw, Monitor, Lightbulb, Fan, Server, Wifi, WifiOff, MapPin, Brain, TrendingUp, AlertTriangle, Zap, Calendar, Clock, BarChart3, Activity, Target, Layers, AlertCircle, CheckCircle, XCircle, TrendingDown, TrendingUp as TrendingUpIcon, Eye, EyeOff, DollarSign, Wrench, Shield } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { apiService, aiMlAPI } from '@/services/api';
+import { apiService, aiMlAPI, deviceAPI, AI_ML_BASE_URL, voiceAnalyticsAPI } from '@/services/api';
 
 const AIMLPanel: React.FC = () => {
   const [tab, setTab] = useState('forecast');
@@ -17,10 +17,23 @@ const AIMLPanel: React.FC = () => {
   const [devices, setDevices] = useState<any[]>([]);
   const [classrooms, setClassrooms] = useState<any[]>([]);
   const [predictions, setPredictions] = useState<any>({});
+  const [aiOnline, setAiOnline] = useState<boolean | null>(null);
+  // Voice analytics state
+  const [voiceSummary, setVoiceSummary] = useState<any | null>(null);
+  const [voiceSeries, setVoiceSeries] = useState<any[]>([]);
 
   // Fetch devices and classrooms on mount
   useEffect(() => {
     fetchDevicesAndClassrooms();
+    // Probe AI/ML service health early for clearer UX
+    (async () => {
+      try {
+        await aiMlAPI.health();
+        setAiOnline(true);
+      } catch (e) {
+        setAiOnline(false);
+      }
+    })();
   }, []);
 
   // Update selected device when classroom changes
@@ -38,6 +51,24 @@ const AIMLPanel: React.FC = () => {
       }
     }
   }, [classroom, devices]);
+
+  // Fetch voice analytics when Voice tab active
+  useEffect(() => {
+    if (tab === 'voice') {
+      (async () => {
+        try {
+          const [sumRes, tsRes] = await Promise.all([
+            voiceAnalyticsAPI.summary(7),
+            voiceAnalyticsAPI.timeseries('day', 7)
+          ]);
+          setVoiceSummary(sumRes.data);
+          setVoiceSeries(tsRes.data?.series || []);
+        } catch (e) {
+          console.error('Voice analytics fetch failed:', e);
+        }
+      })();
+    }
+  }, [tab]);
 
   const fetchDevicesAndClassrooms = async () => {
     try {
@@ -83,12 +114,46 @@ const AIMLPanel: React.FC = () => {
         }
       }
     } catch (err) {
-      console.error('Error fetching devices:', err);
-      // Fallback to empty arrays when API fails
-      setDevices([]);
-      setClassrooms([]);
-      if (!classroom) {
-        setClassroom('');
+      console.error('Error fetching devices (dashboard):', err);
+      // Fallback attempt: fetch devices from /devices API
+      try {
+        const res = await deviceAPI.getAllDevices();
+        const devicesList = Array.isArray(res.data?.devices) ? res.data.devices : res.data;
+        if (Array.isArray(devicesList) && devicesList.length > 0) {
+          setDevices(devicesList);
+
+          const uniqueClassrooms = [...new Set(
+            devicesList
+              .map((d: any) => d.classroom)
+              .filter((c: any) => c && String(c).trim() && c !== 'unassigned')
+          )];
+
+          const classroomObjects = uniqueClassrooms.map((name: any) => {
+            const classroomName = typeof name === 'string' ? name.trim() : String(name).trim();
+            let type = 'room';
+            if (classroomName.toLowerCase().includes('lab')) type = 'lab';
+            else if (classroomName.toLowerCase().includes('class')) type = 'classroom';
+            else if (classroomName.match(/\d+/)) type = 'classroom';
+
+            return { id: classroomName, name: classroomName, type };
+          });
+
+          setClassrooms(classroomObjects);
+          if (classroomObjects.length > 0 && !classroom) {
+            setClassroom(classroomObjects[0].id);
+          }
+        } else {
+          // No devices found even via fallback
+          setDevices([]);
+          setClassrooms([]);
+          if (!classroom) setClassroom('');
+        }
+      } catch (fallbackErr) {
+        console.error('Fallback devices fetch failed:', fallbackErr);
+        // Fallback to empty arrays when both APIs fail
+        setDevices([]);
+        setClassrooms([]);
+        if (!classroom) setClassroom('');
       }
     } finally {
       setLoading(false);
@@ -275,9 +340,15 @@ const AIMLPanel: React.FC = () => {
       setError(null);
     } catch (err: any) {
       console.error(`Error fetching ${type} predictions:`, err);
+      const networkish = !err?.response;
+      const detail = err?.response?.data?.detail || err?.message;
+      if (networkish) {
+        setAiOnline(false);
+      }
       setError(
-        err.response?.data?.detail || 
-        'AI analysis failed. Please ensure device has sufficient usage history and try again.'
+        networkish
+          ? `AI service is unreachable at ${AI_ML_BASE_URL}. Please start the AI/ML service or update VITE_AI_ML_SERVICE_URL.`
+          : (detail || 'AI analysis failed. Please ensure device has sufficient usage history and try again.')
       );
       // Set empty data when API fails
       setPredictions(prev => ({
@@ -1168,6 +1239,7 @@ const AIMLPanel: React.FC = () => {
     { value: 'anomaly', label: 'Anomaly Detection', icon: AlertTriangle },
     { value: 'maintenance', label: 'Predictive Maintenance', icon: Wrench },
     { value: 'workflow', label: 'Smart Automation', icon: Layers },
+    { value: 'voice', label: 'Voice Analytics', icon: Brain },
   ];
 
   return (
@@ -1207,6 +1279,10 @@ const AIMLPanel: React.FC = () => {
             <TabsContent key={value} value={value} className='w-full'>
               {currentDevice && currentClassroom ? (
                 <div className='flex flex-col gap-6'>
+                  {value === 'voice' ? (
+                    <VoiceAnalyticsTab voiceSummary={voiceSummary} voiceSeries={voiceSeries} />
+                  ) : (
+                  <>
                   {/* Location & Device Status Display */}
                   {currentDevice && currentClassroom && currentDevice !== null && currentClassroom !== null && (
                     <div className='bg-muted/30 rounded-lg p-4 border border-muted-foreground/20'>
@@ -1274,7 +1350,7 @@ const AIMLPanel: React.FC = () => {
                           </SelectTrigger>
                           <SelectContent>
                             {availableDevices.map(d => (
-                              <SelectItem key={d.id} value={d.name}>
+                              <SelectItem key={d.id} value={String(d.id)}>
                                 {d.name}
                               </SelectItem>
                             ))}
@@ -1286,7 +1362,7 @@ const AIMLPanel: React.FC = () => {
                     <div className='flex items-center gap-2'>
                       <Button
                         onClick={() => fetchPredictions(value)}
-                        disabled={loading}
+                        disabled={loading || !device || !classroom || aiOnline === false}
                         className='px-6 py-2'
                       >
                         {loading ? <RefreshCw className='w-4 h-4 animate-spin mr-2' /> : React.createElement(FEATURE_META[value].icon, { className: 'w-4 h-4 mr-2' })}
@@ -1294,6 +1370,15 @@ const AIMLPanel: React.FC = () => {
                       </Button>
                     </div>
                   </div>
+
+                  {/* AI Service Status */}
+                  {aiOnline === false && (
+                    <div className='bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3'>
+                      <div className='text-sm'>
+                        AI/ML service appears offline or unreachable at <span className='font-mono'>{AI_ML_BASE_URL}</span>. Start the service or update <span className='font-mono'>VITE_AI_ML_SERVICE_URL</span>.
+                      </div>
+                    </div>
+                  )}
 
                   {/* Error Display */}
                   {error && (
@@ -1320,6 +1405,8 @@ const AIMLPanel: React.FC = () => {
                       {renderPredictions(value)}
                     </div>
                   </div>
+                  </>
+                  )}
                 </div>
               ) : (
                 <div className='flex items-center justify-center py-12'>
@@ -1335,3 +1422,114 @@ const AIMLPanel: React.FC = () => {
 };
 
 export default AIMLPanel;
+
+// Voice Analytics section
+const VoiceAnalyticsTab: React.FC<{ voiceSummary: any; voiceSeries: any[] }> = ({ voiceSummary, voiceSeries }) => {
+  return (
+    <div className='flex flex-col gap-6'>
+      <div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4'>
+        <Card>
+          <CardHeader>
+            <CardTitle>Total Commands (7d)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className='text-3xl font-bold'>{voiceSummary?.totals?.totalCommands ?? 0}</div>
+            <div className='text-sm text-muted-foreground'>Unique Users: {voiceSummary?.totals?.uniqueUsers ?? 0}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Success Rate</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className='text-3xl font-bold'>{voiceSummary?.totals?.successRate ?? 0}%</div>
+            <div className='text-sm text-muted-foreground'>Success: {voiceSummary?.totals?.successCount ?? 0}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>By Assistant</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className='text-sm space-y-1'>
+              {voiceSummary?.byAssistant && Object.entries(voiceSummary.byAssistant).map(([name, count]: any) => (
+                <li key={name} className='flex justify-between'><span className='capitalize'>{String(name)}</span><span className='font-medium'>{count as number}</span></li>
+              ))}
+              {!voiceSummary?.byAssistant && <li className='text-muted-foreground'>No data</li>}
+            </ul>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Unique Devices</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className='text-3xl font-bold'>{voiceSummary?.totals?.uniqueDevices ?? 0}</div>
+            <div className='text-sm text-muted-foreground'>Avg Latency: {voiceSummary?.totals?.avgLatencyMs ?? 0} ms</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className='mt-2 bg-background rounded-lg shadow p-4 border border-muted-foreground/10'>
+        <div className='flex items-center justify-between mb-4'>
+          <h3 className='text-lg font-semibold flex items-center gap-2'>
+            <BarChart3 className='w-5 h-5' /> Voice Commands per Day
+          </h3>
+        </div>
+        <div style={{ height: 280 }}>
+          <ResponsiveContainer width='100%' height='100%'>
+            <BarChart data={voiceSeries}>
+              <CartesianGrid strokeDasharray='3 3' />
+              <XAxis dataKey='bucket' tick={{ fontSize: 12 }} />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey='total' name='Total' fill='#94a3b8' />
+              <Bar dataKey='success' name='Success' fill='#22c55e' />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Per-Device Voice Performance</CardTitle>
+          <CardDescription>Success, failures & latency (7d)</CardDescription>
+        </CardHeader>
+        <CardContent className='overflow-x-auto'>
+          <table className='w-full text-sm border-collapse'>
+            <thead>
+              <tr className='border-b'>
+                <th className='text-left py-2 pr-4 font-medium'>Device ID</th>
+                <th className='text-right py-2 pr-4 font-medium'>Total</th>
+                <th className='text-right py-2 pr-4 font-medium'>Success</th>
+                <th className='text-right py-2 pr-4 font-medium'>Failures</th>
+                <th className='text-right py-2 pr-4 font-medium'>Success %</th>
+                <th className='text-right py-2 pr-4 font-medium'>Avg Latency (ms)</th>
+                <th className='text-left py-2 pr-4 font-medium'>Assistants</th>
+                <th className='text-left py-2 font-medium'>Last Command</th>
+              </tr>
+            </thead>
+            <tbody>
+              {voiceSummary?.devices?.length ? voiceSummary.devices.map((d: any) => (
+                <tr key={d.deviceId} className='border-b last:border-0'>
+                  <td className='py-1 pr-4 font-mono'>{d.deviceId}</td>
+                  <td className='py-1 pr-4 text-right'>{d.total}</td>
+                  <td className='py-1 pr-4 text-right text-green-600'>{d.success}</td>
+                  <td className='py-1 pr-4 text-right text-red-600'>{d.failures}</td>
+                  <td className='py-1 pr-4 text-right'>{d.successRate}%</td>
+                  <td className='py-1 pr-4 text-right'>{d.avgLatencyMs}</td>
+                  <td className='py-1 pr-4'>{Array.isArray(d.assistants) ? d.assistants.join(', ') : ''}</td>
+                  <td className='py-1 font-mono text-xs'>{d.lastCommand ? new Date(d.lastCommand).toLocaleString() : '-'}</td>
+                </tr>
+              )) : (
+                <tr>
+                  <td colSpan={8} className='py-4 text-center text-muted-foreground'>No voice command data</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};

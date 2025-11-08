@@ -3,22 +3,13 @@
  * 
  * Features:
  * - 6 relay control with manual switches (momentary/maintained)
- * - Dual PIR/Microwave motion sensor support with time-based scheduling
+ * - Dual PIR/Microwave motion sensor support
  * - Per-switch PIR configuration (usePir, dontAutoOff)
- * - Time-based motion detection: 8am-5pm only (configurable)
- * - Dual sensor mode during class hours when PIR + microwave configured
  * - MQTT communication with backend
  * - Persistent state in NVS
  * - Watchdog protection with frequent resets
  * - Heap memory monitoring
  * - WiFi auto-reconnect
- * - NTP time synchronization for accurate scheduling
- * 
- * Time-Based Motion Detection:
- * - Detection only active between configured hours (default: 8am-5pm)
- * - Dual sensor mode automatically enabled during class hours
- * - Motion-triggered switches automatically turned off outside schedule
- * - NTP sync ensures accurate time-based control
  * 
  * Created: 2025-10-26
  * Status: Production Ready
@@ -32,6 +23,7 @@
 #include <esp_task_wdt.h>
 #include <esp_system.h>
 #include <time.h>
+#include <stdlib.h>
 #include "config.h"
 #include "blink_status.h"
 
@@ -106,20 +98,21 @@ int commandQueueTail = 0;
 // Motion sensor configuration
 struct MotionSensorConfig {
   bool enabled;
-  String type;  // "hc-sr501", "rcwl-0516", or "both"
-  int primaryGpio;  // PIR (GPIO 34)
-  int secondaryGpio;  // Microwave (GPIO 35)
-  int autoOffDelay;
+  String type;            // "hc-sr501", "rcwl-0516", or "both"
+  int primaryGpio;        // PIR (GPIO 34)
+  int secondaryGpio;      // Microwave (GPIO 35)
+  int autoOffDelay;       // seconds
   String detectionLogic;  // "and", "or", or "weighted"
-  bool dualMode;
-  bool scheduleEnabled;  // Enable time-based detection schedule
-  String activeStartTime;  // HH:MM format (e.g., "18:00")
-  String activeEndTime;    // HH:MM format (e.g., "22:00")
-  int activeDays[7];       // 0=inactive, 1=active for each day (0=Sunday, 6=Saturday)
-  String timezone;         // Timezone string
+  bool dualMode;          // true when using both
+  bool scheduleEnabled;   // enable time-based gating
+  String activeStartTime; // HH:MM (local)
+  String activeEndTime;   // HH:MM (local)
+  int activeDays[7];      // 0/1 for Sunday..Saturday
+  String timezone;        // POSIX TZ (e.g., "IST-5:30", "UTC")
 };
 MotionSensorConfig motionConfig = {
-  false, "hc-sr501", 34, 35, 30, "and", false, false, "18:00", "22:00", {0,0,0,0,0,0,0}, "IST-5:30"
+  false, "hc-sr501", 34, 35, 30, "and", false,
+  false, "08:30", "17:30", {0,1,1,1,1,1,0}, "UTC"
 };
 
 // Motion sensor state
@@ -135,12 +128,6 @@ unsigned long lastStateSend = 0;
 bool pendingState = false;
 // Boot time to avoid spurious triggers right after boot
 unsigned long bootTime = 0;
-
-// NTP and time tracking
-bool timeSynced = false;
-unsigned long lastNtpSync = 0;
-const unsigned long NTP_SYNC_INTERVAL = 3600000; // 1 hour
-const char* NTP_SERVER = "pool.ntp.org";
 
 // --- Non-blocking debounce runtime state ---
 unsigned long lastMotionSampleAt = 0;
@@ -229,6 +216,85 @@ void saveSwitchConfigToNVS() {
     prefs.putBool(("dontAutoOff" + String(i)).c_str(), switchesLocal[i].dontAutoOff);
   }
   prefs.end();
+}
+
+// ========================================
+// TIMEZONE / SCHEDULE HELPERS
+// ========================================
+void applyTimezone(const String &tz) {
+  static String appliedTZ = "";
+  if (!tz.length()) return;
+  if (appliedTZ == tz) return;
+  setenv("TZ", tz.c_str(), 1);
+  tzset();
+  appliedTZ = tz;
+  Serial.printf("[TIME] Timezone set to %s\n", tz.c_str());
+}
+
+void ensureDefaultActiveDays() {
+  bool any = false;
+  for (int d = 0; d < 7; d++) { if (motionConfig.activeDays[d]) { any = true; break; } }
+  if (!any) {
+    int def[7] = {0,1,1,1,1,1,0};
+    for (int d = 0; d < 7; d++) motionConfig.activeDays[d] = def[d];
+    Serial.println("[SCHED] Active days defaulted to weekdays");
+  }
+}
+
+bool isMotionDetectionAllowed() {
+  if (!motionConfig.enabled) {
+    Serial.println("[SCHED] Motion disabled");
+    return false;
+  }
+  if (!motionConfig.scheduleEnabled) {
+    Serial.println("[SCHED] Schedule disabled - motion always allowed");
+    return true;
+  }
+
+  applyTimezone(motionConfig.timezone);
+  ensureDefaultActiveDays();
+
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    // If time not yet synced, allow motion (fail-open)
+    Serial.println("[SCHED] ⚠️ Time NOT synced - allowing motion (fail-open)");
+    return true;
+  }
+  
+  // Log current time for debugging
+  char timebuf[64];
+  strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S (%A)", &timeinfo);
+  Serial.printf("[SCHED] Current time: %s, TZ: %s\n", timebuf, motionConfig.timezone.c_str());
+  
+  int wday = timeinfo.tm_wday; // 0=Sunday
+  if (wday < 0 || wday > 6) return true;
+  
+  if (motionConfig.activeDays[wday] == 0) {
+    Serial.printf("[SCHED] ❌ Day check FAILED - Today (wday=%d) is NOT active\n", wday);
+    return false;
+  }
+  Serial.printf("[SCHED] ✓ Day check passed - wday=%d is active\n", wday);
+
+  int sh=0, sm=0, eh=0, em=0;
+  if (sscanf(motionConfig.activeStartTime.c_str(), "%d:%d", &sh, &sm) != 2) return true;
+  if (sscanf(motionConfig.activeEndTime.c_str(), "%d:%d", &eh, &em) != 2) return true;
+  int cur = timeinfo.tm_hour*60 + timeinfo.tm_min;
+  int start = sh*60 + sm;
+  int end = eh*60 + em;
+  
+  bool inWindow;
+  if (start <= end) {
+    inWindow = (cur >= start && cur < end);
+  } else {
+    inWindow = (cur >= start || cur < end); // spans midnight
+  }
+  
+  Serial.printf("[SCHED] Time check: %02d:%02d (cur=%d) vs window %s-%s (start=%d, end=%d) -> %s\n",
+    timeinfo.tm_hour, timeinfo.tm_min, cur,
+    motionConfig.activeStartTime.c_str(), motionConfig.activeEndTime.c_str(),
+    start, end, inWindow ? "✓ ALLOWED" : "❌ BLOCKED");
+  
+  return inWindow;
 }
 
 void initSwitches() {
@@ -568,18 +634,30 @@ void handleManualSwitches() {
 // primaryStableState / secondaryStableState based on consecutive samples.
 void sampleMotionSensorsNonBlocking() {
   if (!motionConfig.enabled) return;
-  
-  // Check if motion detection is allowed based on time
-  if (!isMotionDetectionAllowed()) {
-    // Reset motion states when detection is not allowed
-    if (primaryStableState || secondaryStableState) {
-      primaryStableState = false;
-      secondaryStableState = false;
-      Serial.println("[MOTION] Detection disabled by time schedule - resetting sensors");
+  // If schedule gating is active and we are outside the allowed window, clear
+  // any accumulated debounced HIGH state so a stale level doesn't immediately
+  // fire when the window opens again.
+  if (motionConfig.scheduleEnabled && !isMotionDetectionAllowed()) {
+    // Log only once when we first get gated
+    static bool wasGated = false;
+    if (!wasGated) {
+      Serial.println("[MOTION] Schedule gating active - motion sampling BLOCKED");
+      wasGated = true;
     }
-    return;
+    primaryStableState = false;
+    secondaryStableState = false;
+    primaryConsecutive = 0;
+    secondaryConsecutive = 0;
+    lastPrimaryRaw = false;
+    lastSecondaryRaw = false;
+    return; // Skip sampling while gated off
+  } else {
+    static bool wasGated = false;
+    if (wasGated) {
+      Serial.println("[MOTION] Schedule gating lifted - motion sampling ACTIVE");
+      wasGated = false;
+    }
   }
-  
   unsigned long now = millis();
   if (now - lastMotionSampleAt < MOTION_SAMPLE_INTERVAL_MS) return;
   lastMotionSampleAt = now;
@@ -652,104 +730,26 @@ void initMotionSensor() {
   Serial.printf("[MOTION] Config: type=%s, autoOff=%ds, logic=%s\n",
     motionConfig.type.c_str(), motionConfig.autoOffDelay, motionConfig.detectionLogic.c_str());
   Serial.printf("[MOTION] Schedule: %s, time=%s-%s, timezone=%s\n",
-    motionConfig.scheduleEnabled ? "ENABLED" : "DISABLED", 
-    motionConfig.activeStartTime.c_str(), motionConfig.activeEndTime.c_str(), 
+    motionConfig.scheduleEnabled ? "ENABLED" : "DISABLED",
+    motionConfig.activeStartTime.c_str(), motionConfig.activeEndTime.c_str(),
     motionConfig.timezone.c_str());
-  
-  // Initialize NTP if schedule is enabled
+  // Initialize time sync if schedule is used
   if (motionConfig.scheduleEnabled && WiFi.status() == WL_CONNECTED) {
-    configTime(0, 0, NTP_SERVER); // UTC time first
-    Serial.println("[NTP] Initializing NTP sync...");
+    // Configure NTP with GMT offset for India (UTC+5:30 = 19800 seconds)
+    configTime(19800, 0, "pool.ntp.org", "time.nist.gov");
+    Serial.println("[NTP] NTP init requested (GMT+5:30 / IST)");
   }
-}
-
-bool isMotionDetectionAllowed() {
-  if (!motionConfig.enabled || !motionConfig.scheduleEnabled) {
-    return motionConfig.enabled; // If not schedule-based, return enabled status
-  }
-  
-  if (!timeSynced && WiFi.status() == WL_CONNECTED) {
-    // Try to sync time
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
-      timeSynced = true;
-      Serial.printf("[NTP] Time synced: %02d:%02d:%02d\n", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-    } else {
-      // If we can't get time, allow detection (fail-open for safety)
-      Serial.println("[NTP] Time sync failed, allowing detection");
-      return true;
-    }
-  }
-  
-  if (!timeSynced) {
-    // No time sync available, allow detection (fail-open)
-    return true;
-  }
-  
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    Serial.println("[NTP] Failed to get local time");
-    return true; // Fail-open
-  }
-  
-  // Check day of week (0=Sunday, 6=Saturday)
-  int currentDay = timeinfo.tm_wday;
-  if (motionConfig.activeDays[currentDay] == 0) {
-    // Today is not an active day
-    return false;
-  }
-  
-  // Parse start time (HH:MM)
-  int startHour = 0, startMin = 0;
-  if (sscanf(motionConfig.activeStartTime.c_str(), "%d:%d", &startHour, &startMin) != 2) {
-    Serial.println("[SCHED] Invalid start time format");
-    return true; // Fail-open
-  }
-  
-  // Parse end time (HH:MM)
-  int endHour = 0, endMin = 0;
-  if (sscanf(motionConfig.activeEndTime.c_str(), "%d:%d", &endHour, &endMin) != 2) {
-    Serial.println("[SCHED] Invalid end time format");
-    return true; // Fail-open
-  }
-  
-  // Convert current time and schedule times to minutes since midnight
-  int currentMinutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
-  int startMinutes = startHour * 60 + startMin;
-  int endMinutes = endHour * 60 + endMin;
-  
-  // Handle schedule spanning midnight
-  bool allowed = false;
-  if (startMinutes <= endMinutes) {
-    // Normal case: start before end (e.g., 18:00 - 22:00)
-    allowed = (currentMinutes >= startMinutes && currentMinutes < endMinutes);
-  } else {
-    // Spans midnight (e.g., 22:00 - 02:00)
-    allowed = (currentMinutes >= startMinutes || currentMinutes < endMinutes);
-  }
-  
-  // Log time-based decisions occasionally
-  static unsigned long lastTimeLog = 0;
-  if (millis() - lastTimeLog > 300000) { // Log every 5 minutes
-    lastTimeLog = millis();
-    Serial.printf("[SCHED] Time: %02d:%02d, Day: %d, Allowed: %s (%s-%s)\n", 
-      timeinfo.tm_hour, timeinfo.tm_min, currentDay, allowed ? "YES" : "NO",
-      motionConfig.activeStartTime.c_str(), motionConfig.activeEndTime.c_str());
-  }
-  
-  return allowed;
 }
 
 bool readMotionSensor() {
   if (!motionConfig.enabled) return false;
-  
-  // Use dual mode during class hours if configured for "both"
-  bool useDualMode = motionConfig.dualMode || (motionConfig.type == "both" && isMotionDetectionAllowed());
-  
+  if (!isMotionDetectionAllowed()) {
+    return false;
+  }
   // Return the debounced stable states sampled by sampleMotionSensorsNonBlocking()
   bool primaryActive = primaryStableState;
 
-  if (useDualMode) {
+  if (motionConfig.dualMode) {
     bool secondaryActive = secondaryStableState;
 
     if (motionConfig.detectionLogic == "and") {
@@ -770,34 +770,35 @@ bool readMotionSensor() {
 void publishMotionEvent(bool detected) {
   if (!motionConfig.enabled || ESP.getFreeHeap() < 1000) return;
   
-  DynamicJsonDocument doc(256);
+  DynamicJsonDocument doc(512);
   doc["mac"] = WiFi.macAddress();
   doc["secret"] = DEVICE_SECRET;
   doc["type"] = "motion";
   doc["detected"] = detected;
   doc["sensorType"] = motionConfig.type;
   doc["timestamp"] = millis();
+  bool detectionAllowed = isMotionDetectionAllowed();
+  doc["detectionAllowed"] = detectionAllowed;
   doc["scheduleEnabled"] = motionConfig.scheduleEnabled;
-  doc["detectionAllowed"] = isMotionDetectionAllowed();
+  if (motionConfig.scheduleEnabled) {
+    doc["timezone"] = motionConfig.timezone;
+    char window[16];
+    snprintf(window, sizeof(window), "%s-%s", motionConfig.activeStartTime.c_str(), motionConfig.activeEndTime.c_str());
+    doc["activeWindow"] = window;
+    uint8_t dayMask = 0; for (int d=0; d<7; d++) if (motionConfig.activeDays[d]) dayMask |= (1<<d);
+    doc["activeDaysMask"] = dayMask; // bit0=Sun .. bit6=Sat
+    struct tm ti; if (getLocalTime(&ti)) {
+      char tbuf[24];
+      strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M", &ti);
+      doc["localTime"] = tbuf;
+      doc["wday"] = ti.tm_wday;
+    }
+  }
   
-  if (motionConfig.dualMode || (motionConfig.type == "both" && isMotionDetectionAllowed())) {
+  if (motionConfig.dualMode) {
     doc["pirState"] = digitalRead(motionConfig.primaryGpio) == HIGH;
     doc["microwaveState"] = digitalRead(motionConfig.secondaryGpio) == HIGH;
     doc["logic"] = motionConfig.detectionLogic;
-    doc["dualModeActive"] = true;
-  } else {
-    doc["dualModeActive"] = false;
-  }
-  
-  if (timeSynced) {
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
-      char timeStr[20];
-      sprintf(timeStr, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-      doc["currentTime"] = timeStr;
-      doc["schedule"] = motionConfig.activeStartTime + "-" + motionConfig.activeEndTime;
-      doc["currentDay"] = timeinfo.tm_wday;
-    }
   }
   
   char buf[512];
@@ -813,29 +814,27 @@ void handleMotionSensor() {
   // Ignore motion handling entirely until grace period after boot has passed
   if (millis() - bootTime < MOTION_BOOT_GRACE_MS) return;
   if (!motionConfig.enabled) return;
-  
-  // Check time-based permissions
+  // Time-based gating: if not allowed, ensure motion-triggered switches are OFF
   bool detectionAllowed = isMotionDetectionAllowed();
-  
-  // If detection is not allowed, ensure all motion-triggered switches are off
   if (!detectionAllowed) {
     if (motionDetected) {
-      Serial.println("[MOTION] Time schedule disabled detection - turning off all motion-triggered switches");
       motionDetected = false;
-      motionStartTime = 0;
       autoOffActive = false;
-      
-      // Turn off all switches that were triggered by motion
       for (int i = 0; i < NUM_SWITCHES; i++) {
         if (affectedSwitches[i] == 1 && switchesLocal[i].state && !switchesLocal[i].manualOverride) {
           queueSwitchCommand(switchesLocal[i].relayGpio, false, CMD_SRC_MOTION);
           affectedSwitches[i] = -1;
-          Serial.printf("[MOTION] Time-off: Switch %d (GPIO %d) turned OFF\n", i, switchesLocal[i].relayGpio);
         }
       }
-      publishMotionEvent(false);
       sendStateUpdate(true);
     }
+    // Clear debounced states so stale HIGH does not trigger immediately later
+    primaryStableState = false;
+    secondaryStableState = false;
+    primaryConsecutive = 0;
+    secondaryConsecutive = 0;
+    lastPrimaryRaw = false;
+    lastSecondaryRaw = false;
     return;
   }
   
@@ -865,10 +864,7 @@ void handleMotionSensor() {
     lastMotionTime = now;
     autoOffActive = false;
     
-    // Enable dual mode during class hours if configured for "both"
-    bool useDualMode = motionConfig.dualMode || (motionConfig.type == "both" && detectionAllowed);
-    
-    Serial.printf("[MOTION] 🔴 DETECTED - Turning ON switches (Dual mode: %s)\n", useDualMode ? "YES" : "NO");
+    Serial.println("[MOTION] 🔴 DETECTED - Turning ON switches");
     
     // Turn ON switches with usePir enabled
     for (int i = 0; i < NUM_SWITCHES; i++) {
@@ -995,12 +991,30 @@ void sendHeartbeat() {
   if (now - lastHeartbeat < 30000) return;
   lastHeartbeat = now;
   
-  DynamicJsonDocument doc(128);
+  DynamicJsonDocument doc(256);
   doc["mac"] = WiFi.macAddress();
   doc["status"] = "heartbeat";
   doc["heap"] = ESP.getFreeHeap();
+  doc["uptime"] = millis();
+  bool detectionAllowed = isMotionDetectionAllowed();
+  doc["detectionAllowed"] = detectionAllowed;
+  doc["scheduleEnabled"] = motionConfig.scheduleEnabled;
+  if (motionConfig.scheduleEnabled) {
+    doc["timezone"] = motionConfig.timezone;
+    char window[16];
+    snprintf(window, sizeof(window), "%s-%s", motionConfig.activeStartTime.c_str(), motionConfig.activeEndTime.c_str());
+    doc["activeWindow"] = window;
+    uint8_t dayMask = 0; for (int d=0; d<7; d++) if (motionConfig.activeDays[d]) dayMask |= (1<<d);
+    doc["activeDaysMask"] = dayMask;
+    struct tm ti; if (getLocalTime(&ti)) {
+      char tbuf[24];
+      strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M", &ti);
+      doc["localTime"] = tbuf;
+      doc["wday"] = ti.tm_wday;
+    }
+  }
   
-  char buf[128];
+  char buf[256];
   size_t n = serializeJson(doc, buf);
   if (mqttClient.connected()) {
     // Async publish: returns a message id (non-zero if queued)
@@ -1220,33 +1234,25 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
           if (ms.containsKey("autoOffDelay")) motionConfig.autoOffDelay = (int)ms["autoOffDelay"];
           motionConfig.dualMode = (String(motionConfig.type) == "both");
           if (ms.containsKey("detectionLogic")) motionConfig.detectionLogic = String((const char*)ms["detectionLogic"]);
-          
-          // Handle PIR detection schedule
-          if (ms.containsKey("scheduleEnabled")) {
-            motionConfig.scheduleEnabled = (bool)ms["scheduleEnabled"];
-          }
-          if (ms.containsKey("activeStartTime")) {
-            motionConfig.activeStartTime = String((const char*)ms["activeStartTime"]);
-          }
-          if (ms.containsKey("activeEndTime")) {
-            motionConfig.activeEndTime = String((const char*)ms["activeEndTime"]);
-          }
+          // Schedule options
+          if (ms.containsKey("scheduleEnabled")) motionConfig.scheduleEnabled = (bool)ms["scheduleEnabled"];
+          if (ms.containsKey("activeStartTime")) motionConfig.activeStartTime = String((const char*)ms["activeStartTime"]);
+          if (ms.containsKey("activeEndTime")) motionConfig.activeEndTime = String((const char*)ms["activeEndTime"]);
           if (ms.containsKey("activeDays")) {
+            // reset then set
+            for (int d=0; d<7; d++) motionConfig.activeDays[d] = 0;
             JsonArray days = ms["activeDays"].as<JsonArray>();
-            // Reset all days to inactive first
-            for (int d = 0; d < 7; d++) motionConfig.activeDays[d] = 0;
-            // Set active days
-            for (JsonVariant day : days) {
-              int dayNum = day.as<int>();
-              if (dayNum >= 0 && dayNum <= 6) {
-                motionConfig.activeDays[dayNum] = 1;
-              }
+            for (JsonVariant v : days) {
+              int dn = v.as<int>();
+              if (dn >= 0 && dn <= 6) motionConfig.activeDays[dn] = 1;
             }
           }
-          
           if (ms.containsKey("timezone")) motionConfig.timezone = String((const char*)ms["timezone"]);
 
-          // Persist to NVS
+          ensureDefaultActiveDays();
+          applyTimezone(motionConfig.timezone);
+
+          // Persist to NVS (including schedule fields)
           prefs.begin("motion_cfg", false);
           prefs.putBool("enabled", motionConfig.enabled);
           prefs.putString("type", motionConfig.type);
@@ -1256,18 +1262,14 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
           prefs.putBool("schedEnabled", motionConfig.scheduleEnabled);
           prefs.putString("startTime", motionConfig.activeStartTime);
           prefs.putString("endTime", motionConfig.activeEndTime);
-          // Store active days as a byte (bitfield)
-          uint8_t daysByte = 0;
-          for (int d = 0; d < 7; d++) {
-            if (motionConfig.activeDays[d]) daysByte |= (1 << d);
-          }
+          uint8_t daysByte = 0; for (int d=0; d<7; d++) if (motionConfig.activeDays[d]) daysByte |= (1<<d);
           prefs.putUChar("activeDays", daysByte);
           prefs.putString("timezone", motionConfig.timezone);
           prefs.end();
 
           if (motionConfig.enabled != wasEnabled || motionConfig.enabled) initMotionSensor();
           Serial.println("[CONFIG] Motion config updated from server");
-          Serial.printf("[CONFIG] Schedule: %s, %s-%s\n", 
+          Serial.printf("[CONFIG] Schedule: %s, %s-%s\n",
             motionConfig.scheduleEnabled ? "ENABLED" : "DISABLED",
             motionConfig.activeStartTime.c_str(), motionConfig.activeEndTime.c_str());
         }
@@ -1308,6 +1310,11 @@ void setup_wifi() {
     String mac = WiFi.macAddress();
     mac.replace(":", "");
     sprintf(mqttClientId, "ESP32_%s", mac.c_str());
+    if (motionConfig.scheduleEnabled) {
+      // Configure NTP with GMT offset for India (UTC+5:30 = 19800 seconds)
+      configTime(19800, 0, "pool.ntp.org", "time.nist.gov");
+      Serial.println("[NTP] NTP init requested (GMT+5:30 / IST, WiFi up)");
+    }
   } else {
     Serial.println("\nWiFi failed - offline mode");
     connState = WIFI_DISCONNECTED;
@@ -1354,19 +1361,24 @@ void checkSystemHealth() {
   }
   Serial.printf("[HEALTH] Active switches: %d/%d\n", activeSwitches, NUM_SWITCHES);
   
-  // Time and motion status
-  if (motionConfig.scheduleEnabled) {
-    bool detectionAllowed = isMotionDetectionAllowed();
-    Serial.printf("[HEALTH] Motion detection: %s (Schedule: %s)\n", 
-      detectionAllowed ? "ALLOWED" : "BLOCKED", timeSynced ? "SYNCED" : "NO SYNC");
-    
-    if (timeSynced) {
-      struct tm timeinfo;
-      if (getLocalTime(&timeinfo)) {
-        Serial.printf("[HEALTH] Current time: %02d:%02d, Schedule: %s-%s\n", 
-          timeinfo.tm_hour, timeinfo.tm_min, 
-          motionConfig.activeStartTime.c_str(), motionConfig.activeEndTime.c_str());
-      }
+  // Motion schedule status
+  if (motionConfig.enabled) {
+    struct tm ti;
+    bool timeValid = getLocalTime(&ti);
+    char tbuf[24] = "NOT_SYNCED";
+    if (timeValid) {
+      strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", &ti);
+    }
+    Serial.printf("[HEALTH] Motion: %s, Schedule: %s, Time: %s\n",
+      motionConfig.enabled ? "ENABLED" : "DISABLED",
+      motionConfig.scheduleEnabled ? "ENABLED" : "DISABLED",
+      tbuf);
+    if (motionConfig.scheduleEnabled) {
+      Serial.printf("[HEALTH] Window: %s-%s, TZ: %s, Allowed: %s\n",
+        motionConfig.activeStartTime.c_str(),
+        motionConfig.activeEndTime.c_str(),
+        motionConfig.timezone.c_str(),
+        isMotionDetectionAllowed() ? "YES" : "NO");
     }
   }
   
@@ -1389,8 +1401,8 @@ void logUnexpectedActivations() {
         shouldBeOn = true;
       }
       
-      // Check motion (if enabled, switch uses PIR, and detection is allowed by time)
-      if (motionConfig.enabled && switchesLocal[i].usePir && motionDetected && isMotionDetectionAllowed()) {
+      // Check motion (if enabled and switch uses PIR)
+      if (motionConfig.enabled && switchesLocal[i].usePir && motionDetected) {
         shouldBeOn = true;
       }
       
@@ -1400,11 +1412,9 @@ void logUnexpectedActivations() {
       if (!shouldBeOn) {
         Serial.printf("[ALERT] Switch %d (GPIO %d) is ON but no valid reason found!\n", i, switchesLocal[i].relayGpio);
         Serial.printf("  - Manual override: %s\n", switchesLocal[i].manualOverride ? "YES" : "NO");
-        Serial.printf("  - Motion detected: %s (switch uses PIR: %s, time allowed: %s)\n", 
-          motionDetected ? "YES" : "NO", switchesLocal[i].usePir ? "YES" : "NO", 
-          isMotionDetectionAllowed() ? "YES" : "NO");
-        Serial.printf("  - Motion enabled: %s, Schedule: %s\n", 
-          motionConfig.enabled ? "YES" : "NO", motionConfig.scheduleEnabled ? "YES" : "NO");
+        Serial.printf("  - Motion detected: %s (switch uses PIR: %s)\n", 
+          motionDetected ? "YES" : "NO", switchesLocal[i].usePir ? "YES" : "NO");
+        Serial.printf("  - Motion enabled: %s\n", motionConfig.enabled ? "YES" : "NO");
       }
     }
   }
@@ -1451,15 +1461,16 @@ void setup() {
   motionConfig.dualMode = prefs.getBool("dualMode", false);
   motionConfig.detectionLogic = prefs.getString("logic", "and");
   motionConfig.scheduleEnabled = prefs.getBool("schedEnabled", false);
-  motionConfig.activeStartTime = prefs.getString("startTime", "18:00");
-  motionConfig.activeEndTime = prefs.getString("endTime", "22:00");
-  // Load active days from bitfield
+  motionConfig.activeStartTime = prefs.getString("startTime", "08:30");
+  motionConfig.activeEndTime = prefs.getString("endTime", "17:30");
+  // Load activeDays bitfield if present
   uint8_t daysByte = prefs.getUChar("activeDays", 0);
-  for (int d = 0; d < 7; d++) {
-    motionConfig.activeDays[d] = (daysByte & (1 << d)) ? 1 : 0;
-  }
-  motionConfig.timezone = prefs.getString("timezone", "IST-5:30");
+  for (int d=0; d<7; d++) motionConfig.activeDays[d] = (daysByte & (1<<d)) ? 1 : 0;
+  motionConfig.timezone = prefs.getString("timezone", "UTC");
   prefs.end();
+
+  ensureDefaultActiveDays();
+  applyTimezone(motionConfig.timezone);
   
   // Always initialize motion sensor
   initMotionSensor();
@@ -1501,19 +1512,6 @@ void loop() {
   sampleMotionSensorsNonBlocking();
   handleMotionSensor();
   esp_task_wdt_reset();
-  
-  // NTP sync for time-based motion detection
-  if (motionConfig.scheduleEnabled && WiFi.status() == WL_CONNECTED && 
-      (millis() - lastNtpSync > NTP_SYNC_INTERVAL || !timeSynced)) {
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
-      timeSynced = true;
-      lastNtpSync = millis();
-      Serial.printf("[NTP] Time synced: %04d-%02d-%02d %02d:%02d:%02d\n", 
-        timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
-        timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-    }
-  }
   
   // PRIORITY 3: Network operations (can be slower)
   updateConnectionStatus();

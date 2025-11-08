@@ -457,8 +457,30 @@ const ActiveLogsPage: React.FC = () => {
                           </td>
                           <td className="px-2 md:px-4 py-2 hidden md:table-cell">
                             <div className="min-w-0">
-                              {log.userName && <div className="font-medium text-xs md:text-sm truncate">{log.userName}</div>}
-                              <div className="text-xs"><Badge variant="outline" className="text-xs">{log.triggeredBy || 'unknown'}</Badge></div>
+                              {(() => {
+                                const tb = (log as any).triggeredBy as string | undefined;
+                                const ctx = (log as any).context || {};
+                                let label: string | null = null;
+                                if (tb === 'user') {
+                                  label = (log as any).userName || 'Web User';
+                                } else if (tb === 'schedule') {
+                                  label = ctx.scheduleName || 'Schedule';
+                                } else if (tb === 'pir') {
+                                  label = 'PIR Sensor';
+                                } else if (tb === 'manual_switch') {
+                                  label = 'Manual Switch';
+                                } else if (tb === 'voice_assistant') {
+                                  label = 'Voice Assistant';
+                                } else if (tb === 'monitoring') {
+                                  label = 'Monitoring';
+                                }
+                                return (
+                                  <>
+                                    {label && <div className="font-medium text-xs md:text-sm truncate">{label}</div>}
+                                    <div className="text-xs"><Badge variant="outline" className="text-xs">{tb || 'unknown'}</Badge></div>
+                                  </>
+                                );
+                              })()}
                             </div>
                           </td>
                           <td className="px-2 md:px-4 py-2 text-xs text-muted-foreground hidden lg:table-cell truncate">{log.location || '-'}</td>

@@ -1249,6 +1249,19 @@ function calculateDevicePowerConsumption(device) {
   }, 0);
 }
 
+// Calculate power consumption for offline device estimation (ignores online status)
+function calculateOfflineDevicePowerConsumption(device) {
+  if (!device || !device.switches) return 0;
+
+  return device.switches.reduce((totalPower, switchItem) => {
+    if (switchItem.state && switchItem.state === true) {
+      const basePower = getBasePowerConsumption(switchItem.name, switchItem.type);
+      return totalPower + basePower;
+    }
+    return totalPower;
+  }, 0);
+}
+
 // Calculate energy consumption in kWh
 function calculateEnergyConsumption(powerWatts, durationHours) {
   // Energy (kWh) = Power (Watts) × Time (Hours) ÷ 1000
@@ -2576,14 +2589,16 @@ async function getEnergySummary() {
     
     // Get today's aggregate (all classrooms)
     const todayAggregates = await DailyAggregate.find({ date_string: todayStr }).lean();
-    
+
     let dailyConsumption = 0;
     let dailyCost = 0;
     let dailyRuntime = 0;
-    
+
     for (const agg of todayAggregates) {
-      dailyConsumption += (agg.total_kwh || agg.total_wh / 1000 || 0);
-      dailyCost += (agg.cost_at_calc_time || 0);
+      const kwh = (agg.total_kwh || agg.total_wh / 1000 || 0);
+      dailyConsumption += kwh;
+      // If aggregate didn't persist cost, compute from current rate to avoid zero cost cards
+      dailyCost += (agg.cost_at_calc_time || (kwh * ELECTRICITY_RATE_INR_PER_KWH));
       dailyRuntime += (agg.on_time_sec || 0) / 3600;
     }
     
@@ -2592,20 +2607,101 @@ async function getEnergySummary() {
       month: currentMonth,
       year: currentYear
     }).lean();
-    
+
     let monthlyConsumption = 0;
     let monthlyCost = 0;
     let monthlyRuntime = 0;
-    
+
     for (const agg of monthlyAggregates) {
-      monthlyConsumption += (agg.total_kwh || agg.total_wh / 1000 || 0);
-      monthlyCost += (agg.cost_at_calc_time || 0);
+      const kwh = (agg.total_kwh || agg.total_wh / 1000 || 0);
+      monthlyConsumption += kwh;
+      // If aggregate didn't persist cost, compute from current rate to avoid zero cost cards
+      monthlyCost += (agg.cost_at_calc_time || (kwh * ELECTRICITY_RATE_INR_PER_KWH));
       monthlyRuntime += (agg.on_time_sec || 0) / 3600;
     }
+
+    // -----------------------------------------------------------
+    // FALLBACK: If aggregates unavailable (fresh system / job not run)
+    // reconstruct using ActivityLog + approximation for active online devices.
+    // -----------------------------------------------------------
+    const needDailyFallback = todayAggregates.length === 0;
+    const needMonthlyFallback = monthlyAggregates.length === 0;
+    let fallbackUsed = false;
+
+    if (needDailyFallback || needMonthlyFallback) {
+      const DeviceModel = require('./models/Device');
+      const devices = await DeviceModel.find({}, { switches:1, status:1, onlineSince:1, classroom:1, name:1 }).lean();
+      const dayStart = moment().tz(timezone).startOf('day').toDate();
+      const nowTs = new Date();
+      const rate = ELECTRICITY_RATE_INR_PER_KWH;
+
+      if (needDailyFallback) {
+        dailyConsumption = 0; dailyCost = 0; dailyRuntime = 0;
+        for (const d of devices) {
+          let kwh = await calculatePreciseEnergyConsumption(d._id, dayStart, nowTs);
+          let runtimeHours = 0;
+          if (kwh === 0 && d.status === 'online') {
+            const basePower = calculateDevicePowerConsumption(d); // watts
+            if (basePower > 0) {
+              const onlineSince = d.onlineSince && d.onlineSince > dayStart ? d.onlineSince : dayStart;
+              const elapsedHours = Math.max(0, (nowTs - onlineSince) / (1000*60*60));
+              kwh = (basePower * elapsedHours) / 1000;
+              runtimeHours = elapsedHours;
+            }
+          }
+          if (kwh > 0) {
+            dailyConsumption += kwh;
+            dailyCost += kwh * rate;
+            dailyRuntime += runtimeHours; // runtime approximation only for fallback rows
+          }
+        }
+        fallbackUsed = true;
+      }
+
+      if (needMonthlyFallback) {
+        // Reconstruct from first day of month through today
+        const monthStartMoment = moment().tz(timezone).startOf('month');
+        const daysInRange = moment().tz(timezone).diff(monthStartMoment, 'days') + 1;
+        monthlyConsumption = 0; monthlyCost = 0; monthlyRuntime = 0;
+        for (let i = 0; i < daysInRange; i++) {
+          const dayMoment = monthStartMoment.clone().add(i,'days');
+          const dayStartLocal = dayMoment.clone().startOf('day').toDate();
+          const dayEndLocal = dayMoment.clone().endOf('day').toDate();
+          for (const d of devices) {
+            let kwh = await calculatePreciseEnergyConsumption(d._id, dayStartLocal, dayEndLocal);
+            let runtimeHours = 0;
+            if (kwh === 0 && d.status === 'online' && dayMoment.isSame(moment().tz(timezone), 'day')) {
+              // Only approximate for current day in month fallback
+              const basePower = calculateDevicePowerConsumption(d);
+              if (basePower > 0) {
+                const onlineSince = d.onlineSince && d.onlineSince > dayStartLocal ? d.onlineSince : dayStartLocal;
+                const elapsedHours = Math.max(0, (Math.min(Date.now(), dayEndLocal.getTime()) - onlineSince.getTime()) / (1000*60*60));
+                kwh = (basePower * elapsedHours) / 1000;
+                runtimeHours = elapsedHours;
+              }
+            }
+            if (kwh > 0) {
+              monthlyConsumption += kwh;
+              monthlyCost += kwh * rate;
+              monthlyRuntime += runtimeHours;
+            }
+          }
+        }
+        fallbackUsed = true;
+      }
+
+      if (fallbackUsed) {
+        console.log(`[EnergySummary] FALLBACK reconstruction used (daily:${needDailyFallback} monthly:${needMonthlyFallback}) rate=₹${ELECTRICITY_RATE_INR_PER_KWH}`);
+      }
+    }
+
+    // When a device goes offline, consumption stops immediately.
+    // Historical data from BEFORE the device went offline is preserved in ActivityLog/Aggregates.
+    // No estimation is made for offline devices, even if switches show as "ON".
     
     // Log what system is being used
-    console.log(`[EnergySummary] NEW SYSTEM - Daily: ${dailyConsumption.toFixed(3)} kWh, ₹${dailyCost.toFixed(2)}`);
-    console.log(`[EnergySummary] NEW SYSTEM - Monthly: ${monthlyConsumption.toFixed(3)} kWh, ₹${monthlyCost.toFixed(2)}`);
+  console.log(`[EnergySummary] Computed - Daily: ${dailyConsumption.toFixed(3)} kWh, ₹${dailyCost.toFixed(2)} (fallback:${needDailyFallback})`);
+  console.log(`[EnergySummary] Computed - Monthly: ${monthlyConsumption.toFixed(3)} kWh, ₹${monthlyCost.toFixed(2)} (fallback:${needMonthlyFallback})`);
     console.log(`[EnergySummary] TelemetryEvents: ${await mongoose.connection.db.collection('telemetry_events').countDocuments()}`);
     console.log(`[EnergySummary] DailyAggregates: ${await mongoose.connection.db.collection('daily_aggregates').countDocuments()}`);
     
@@ -2624,6 +2720,10 @@ async function getEnergySummary() {
         cost: parseFloat(monthlyCost.toFixed(2)),
         runtime: parseFloat(monthlyRuntime.toFixed(2)),
         onlineDevices: onlineDeviceCount
+      },
+      fallback: {
+        daily: needDailyFallback,
+        monthly: needMonthlyFallback
       },
       devices: [], // Device breakdown can be fetched from /api/power-analytics/device-breakdown
       timestamp: now.toISOString()
@@ -2749,6 +2849,7 @@ module.exports = {
   getEfficiencyMetrics,
   getBasePowerConsumption,
   calculateDevicePowerConsumption,
+  calculateOfflineDevicePowerConsumption, // Export for offline device estimation
   calculateEnergyConsumption,
   calculatePreciseEnergyConsumption,
   initializeMetrics,

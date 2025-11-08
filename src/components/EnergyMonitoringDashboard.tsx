@@ -9,22 +9,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
-} from 'recharts';
-import {
   Calendar as CalendarIcon, Clock, Zap, TrendingUp, TrendingDown, Activity,
   ChevronLeft, ChevronRight, Info, Settings
 } from 'lucide-react';
-import { apiService } from '@/services/api';
+import { apiService, energyAPI } from '@/services/api';
 import { cn } from '@/lib/utils';
 import PowerSettings from './PowerSettings';
-
-interface EnergyData {
-  timestamp: string;
-  consumption: number;
-  cost: number;
-  runtime: number;
-}
+import EnergyCharts from '@/components/EnergyCharts';
 
 interface DailySummary {
   date: string;
@@ -52,7 +43,10 @@ const EnergyMonitoringDashboard: React.FC = () => {
   
   const [todayData, setTodayData] = useState<any>(null);
   const [monthData, setMonthData] = useState<any>(null);
-  const [chartData, setChartData] = useState<EnergyData[]>([]);
+  // Anchors actually used for cards and chart normalization (respect filters)
+  const [displayToday, setDisplayToday] = useState<any>(null);
+  const [displayMonth, setDisplayMonth] = useState<any>(null);
+  const [fallbackInfo, setFallbackInfo] = useState<{daily?: boolean; monthly?: boolean}>({});
   const [calendarData, setCalendarData] = useState<CalendarViewData | null>(null);
   const [devices, setDevices] = useState<any[]>([]);
   const [classrooms, setClassrooms] = useState<string[]>([]);
@@ -72,37 +66,50 @@ const EnergyMonitoringDashboard: React.FC = () => {
     }
   };
 
-  // Fetch summary data
-  const fetchSummaryData = async () => {
+  // Fetch summary data (global) and compute display anchors that respect filters
+  const fetchSummaryAnchors = async () => {
     try {
-      const response = await apiService.get('/analytics/energy-summary');
-      setTodayData(response.data.daily);
-      setMonthData(response.data.monthly);
+      const response = await energyAPI.summary();
+      const daily = response.data.daily;
+      const monthly = response.data.monthly;
+      setTodayData(daily);
+      setMonthData(monthly);
+      setFallbackInfo(response.data.fallback || {});
+
+      const isFiltered = selectedClassroom !== 'all' || selectedDevice !== 'all';
+      const now = new Date();
+      if (!isFiltered) {
+        setDisplayToday(daily);
+        setDisplayMonth(monthly);
+      } else {
+        // Derive filtered anchors from breakdown endpoints so cards match charts
+        const dateStr = now.toISOString().slice(0, 10);
+        const [hourly, monthlyBreak] = await Promise.all([
+          energyAPI.hourlyBreakdown(dateStr, selectedClassroom !== 'all' ? selectedClassroom : undefined, selectedDevice !== 'all' ? selectedDevice : undefined),
+          energyAPI.monthlyBreakdown(now.getFullYear(), now.getMonth() + 1, selectedClassroom !== 'all' ? selectedClassroom : undefined, selectedDevice !== 'all' ? selectedDevice : undefined)
+        ]);
+        const buckets = (hourly.data?.buckets || []) as Array<{ consumption_kwh?: number; cost?: number }>;
+        const filteredDayConsumption = buckets.reduce((sum, b) => sum + (b.consumption_kwh || 0), 0);
+        const filteredDayCost = buckets.reduce((sum, b) => sum + (b.cost || 0), 0);
+        setDisplayToday({
+          consumption: filteredDayConsumption,
+          cost: filteredDayCost,
+          runtime: 0,
+          onlineDevices: daily?.onlineDevices ?? 0
+        });
+        setDisplayMonth({
+          consumption: monthlyBreak.data?.total_kwh || 0,
+          cost: monthlyBreak.data?.total_cost || 0,
+          runtime: monthly?.runtime ?? 0,
+          onlineDevices: monthly?.onlineDevices ?? 0
+        });
+      }
     } catch (error) {
       console.error('Error fetching summary:', error);
     }
   };
 
-  // Fetch chart data based on view mode
-  const fetchChartData = async () => {
-    try {
-      let timeframe = '24h';
-      if (viewMode === 'month') timeframe = '30d';
-      if (viewMode === 'year') timeframe = '90d'; // Changed from 365d to 90d (supported by backend)
-      
-      const response = await apiService.get(`/analytics/energy/${timeframe}`);
-      const formattedData = response.data.map((item: any) => ({
-        timestamp: item.timestamp,
-        consumption: item.totalConsumption || 0,
-        cost: item.totalCostINR || 0,
-        runtime: item.runtime || 0
-      }));
-      setChartData(formattedData);
-    } catch (error) {
-      console.error('Error fetching chart data:', error);
-      setChartData([]);
-    }
-  };
+  // Charts removed: no chart data fetching
 
   // Fetch calendar view data (real data only, no mock data)
   const fetchCalendarData = async (date: Date) => {
@@ -137,18 +144,20 @@ const EnergyMonitoringDashboard: React.FC = () => {
       setLoading(true);
       await Promise.all([
         fetchElectricityPrice(),
-        fetchSummaryData(),
-        fetchChartData(),
         fetchDevicesAndClassrooms()
       ]);
+      // Fetch anchors (charts removed)
+      await fetchSummaryAnchors();
       setLoading(false);
     };
     loadData();
   }, []);
 
   useEffect(() => {
-    fetchChartData();
-  }, [viewMode, selectedDevice, selectedClassroom]);
+    // Refetch anchors when filters change (charts removed)
+    fetchSummaryAnchors();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDevice, selectedClassroom]);
 
   useEffect(() => {
     if (showCalendar) {
@@ -188,68 +197,7 @@ const EnergyMonitoringDashboard: React.FC = () => {
     setCurrentDate(newDate);
   };
 
-  // Format chart data based on view mode
-  const getFormattedChartData = () => {
-    if (viewMode === 'day') {
-      // Show 24 hours
-      return chartData.map(item => ({
-        ...item,
-        label: new Date(item.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', hour12: false })
-      }));
-    } else if (viewMode === 'month') {
-      // Show 30/31 days - aggregate hourly data into daily data
-      const dailyData = chartData.reduce((acc: any, item) => {
-        const date = new Date(item.timestamp);
-        const dayKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-        
-        if (!acc[dayKey]) {
-          acc[dayKey] = { 
-            label: date.getDate().toString(), 
-            consumption: 0, 
-            cost: 0, 
-            runtime: 0,
-            timestamp: new Date(date.getFullYear(), date.getMonth(), date.getDate()).toISOString()
-          };
-        }
-        acc[dayKey].consumption += item.consumption;
-        acc[dayKey].cost += item.cost;
-        acc[dayKey].runtime += item.runtime;
-        return acc;
-      }, {});
-      
-      // Sort by date and return array
-      return Object.values(dailyData).sort((a: any, b: any) => 
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-      );
-    } else {
-      // Show 12 months - aggregate hourly data into monthly data
-      const monthlyData = chartData.reduce((acc: any, item) => {
-        const date = new Date(item.timestamp);
-        const year = date.getFullYear();
-        const month = date.getMonth(); // 0-11
-        const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
-        const monthLabel = date.toLocaleString('default', { month: 'short' });
-        
-        if (!acc[monthKey]) {
-          acc[monthKey] = { 
-            label: monthLabel, 
-            consumption: 0, 
-            cost: 0, 
-            runtime: 0,
-            timestamp: new Date(year, month, 1).toISOString(),
-            sortKey: year * 100 + month
-          };
-        }
-        acc[monthKey].consumption += item.consumption;
-        acc[monthKey].cost += item.cost;
-        acc[monthKey].runtime += item.runtime;
-        return acc;
-      }, {});
-      
-      // Sort by date and return array
-      return Object.values(monthlyData).sort((a: any, b: any) => a.sortKey - b.sortKey);
-    }
-  };
+  // Charts removed: no formatted chart data
 
   if (loading) {
     return (
@@ -268,8 +216,7 @@ const EnergyMonitoringDashboard: React.FC = () => {
           setShowPowerSettings(false);
           // Reload electricity price and data after settings change
           fetchElectricityPrice();
-          fetchSummaryData();
-          fetchChartData();
+          fetchSummaryAnchors();
           // Refresh calendar if it's open
           if (showCalendar) {
             fetchCalendarData(currentDate);
@@ -346,14 +293,22 @@ const EnergyMonitoringDashboard: React.FC = () => {
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="text-2xl md:text-3xl font-bold text-blue-600">
-              {todayData?.consumption?.toFixed(3) || '0.000'} kWh
+              {(displayToday?.consumption ?? todayData?.consumption)?.toFixed(3) || '0.000'} kWh
             </div>
             <div className="text-xs text-muted-foreground">
-              Cost: ₹{todayData?.cost?.toFixed(2) || '0.00'}
+              Cost: ₹{(displayToday?.cost ?? todayData?.cost)?.toFixed(2) || '0.00'}
             </div>
-            <Badge variant="outline" className="text-xs">
-              {todayData?.onlineDevices || 0} devices online
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs">
+                {todayData?.onlineDevices || 0} devices online
+              </Badge>
+              {fallbackInfo?.daily && (
+                <Badge variant="secondary" className="text-[10px]">reconstructed</Badge>
+              )}
+              {(selectedClassroom !== 'all' || selectedDevice !== 'all') && (
+                <Badge variant="secondary" className="text-[10px]">filtered</Badge>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -367,14 +322,22 @@ const EnergyMonitoringDashboard: React.FC = () => {
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="text-2xl md:text-3xl font-bold text-green-600">
-              {monthData?.consumption?.toFixed(3) || '0.000'} kWh
+              {(displayMonth?.consumption ?? monthData?.consumption)?.toFixed(3) || '0.000'} kWh
             </div>
             <div className="text-xs text-muted-foreground">
-              Cost: ₹{monthData?.cost?.toFixed(2) || '0.00'}
+              Cost: ₹{(displayMonth?.cost ?? monthData?.cost)?.toFixed(2) || '0.00'}
             </div>
-            <Badge variant="outline" className="text-xs">
-              Avg. efficiency: 85%
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs">
+                Avg. efficiency: 85%
+              </Badge>
+              {fallbackInfo?.monthly && (
+                <Badge variant="secondary" className="text-[10px]">reconstructed</Badge>
+              )}
+              {(selectedClassroom !== 'all' || selectedDevice !== 'all') && (
+                <Badge variant="secondary" className="text-[10px]">filtered</Badge>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -388,13 +351,13 @@ const EnergyMonitoringDashboard: React.FC = () => {
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="text-2xl md:text-3xl font-bold text-purple-600">
-              ₹{monthData?.cost?.toFixed(2) || '0.00'}
+              ₹{(displayMonth?.cost ?? monthData?.cost)?.toFixed(2) || '0.00'}
             </div>
             <div className="text-xs text-muted-foreground">
               Rate: ₹{electricityPrice.toFixed(2)}/kWh
             </div>
             <Badge variant="outline" className="text-xs">
-              {((monthData?.cost || 0) / 30).toFixed(2)} ₹/day avg
+              {(((displayMonth?.cost ?? monthData?.cost) || 0) / 30).toFixed(2)} ₹/day avg
             </Badge>
           </CardContent>
         </Card>
@@ -533,149 +496,16 @@ const EnergyMonitoringDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Chart Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <CardTitle>Energy Consumption Trend</CardTitle>
-              <CardDescription>
-                {viewMode === 'day' && '24-hour breakdown of energy usage'}
-                {viewMode === 'month' && 'Daily consumption for the month'}
-                {viewMode === 'year' && 'Monthly consumption for the year'}
-              </CardDescription>
-            </div>
-            
-            {/* View Mode Tabs */}
-            <div className="flex gap-1 bg-muted p-1 rounded-lg">
-              <Button
-                variant={viewMode === 'day' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('day')}
-              >
-                Day
-              </Button>
-              <Button
-                variant={viewMode === 'month' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('month')}
-              >
-                Month
-              </Button>
-              <Button
-                variant={viewMode === 'year' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('year')}
-              >
-                Year
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={getFormattedChartData()}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis 
-                dataKey="label" 
-                angle={viewMode === 'year' ? 0 : -45}
-                textAnchor={viewMode === 'year' ? 'middle' : 'end'}
-                height={viewMode === 'year' ? 30 : 60}
-                tick={{ fontSize: 12 }}
-              />
-              <YAxis 
-                label={{ value: 'Energy (kWh)', angle: -90, position: 'insideLeft' }}
-                tick={{ fontSize: 12 }}
-              />
-              <Tooltip
-                content={({ active, payload }) => {
-                  if (active && payload && payload.length) {
-                    const data = payload[0].payload;
-                    return (
-                      <div className="bg-white dark:bg-gray-800 p-3 rounded-lg shadow-lg border">
-                        <p className="font-semibold">{data.label}</p>
-                        <p className="text-sm text-blue-600">
-                          Consumption: {data.consumption?.toFixed(3)} kWh
-                        </p>
-                        <p className="text-sm text-green-600">
-                          Cost: ₹{data.cost?.toFixed(2)}
-                        </p>
-                        {data.runtime && (
-                          <p className="text-sm text-orange-600">
-                            Runtime: {formatRuntime(data.runtime)}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  }
-                  return null;
-                }}
-              />
-              <Legend />
-              <Bar 
-                dataKey="consumption" 
-                fill="#3b82f6" 
-                name="Energy (kWh)"
-                radius={[4, 4, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
-
-      {/* Cost Trend Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Cost Analysis</CardTitle>
-          <CardDescription>Energy costs over the selected period</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={getFormattedChartData()}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis 
-                dataKey="label"
-                angle={viewMode === 'year' ? 0 : -45}
-                textAnchor={viewMode === 'year' ? 'middle' : 'end'}
-                height={viewMode === 'year' ? 30 : 60}
-                tick={{ fontSize: 12 }}
-              />
-              <YAxis 
-                label={{ value: 'Cost (₹)', angle: -90, position: 'insideLeft' }}
-                tick={{ fontSize: 12 }}
-              />
-              <Tooltip
-                content={({ active, payload }) => {
-                  if (active && payload && payload.length) {
-                    const data = payload[0].payload;
-                    return (
-                      <div className="bg-white dark:bg-gray-800 p-3 rounded-lg shadow-lg border">
-                        <p className="font-semibold">{data.label}</p>
-                        <p className="text-sm text-green-600">
-                          Cost: ₹{data.cost?.toFixed(2)}
-                        </p>
-                        <p className="text-sm text-blue-600">
-                          Consumption: {data.consumption?.toFixed(3)} kWh
-                        </p>
-                      </div>
-                    );
-                  }
-                  return null;
-                }}
-              />
-              <Legend />
-              <Line 
-                type="monotone" 
-                dataKey="cost" 
-                stroke="#10b981" 
-                strokeWidth={2}
-                name="Cost (₹)"
-                dot={{ fill: '#10b981', strokeWidth: 2, r: 3 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {/* Interactive Multi-Period Energy Charts */}
+      <EnergyCharts
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        selectedClassroom={selectedClassroom}
+        selectedDevice={selectedDevice}
+        todayAnchor={displayToday}
+        monthAnchor={displayMonth}
+        electricityRate={electricityPrice}
+      />
 
       {/* Info Card */}
       <Card className="bg-blue-50 dark:bg-blue-950/20 border-blue-200">

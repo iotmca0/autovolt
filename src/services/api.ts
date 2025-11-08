@@ -1,5 +1,5 @@
 // --- AI/ML Microservice API ---
-const AI_ML_BASE_URL = import.meta.env.VITE_AI_ML_SERVICE_URL || 'http://127.0.0.1:8004';
+export const AI_ML_BASE_URL = import.meta.env.VITE_AI_ML_SERVICE_URL || 'http://127.0.0.1:8004';
 
 export const aiMlAPI = {
   forecast: (device_id: string, history: number[], periods = 5) =>
@@ -8,6 +8,7 @@ export const aiMlAPI = {
     axios.post(`${AI_ML_BASE_URL}/schedule`, { device_id, constraints }),
   anomaly: (device_id: string, values: number[]) =>
     axios.post(`${AI_ML_BASE_URL}/anomaly`, { device_id, values }),
+  health: () => axios.get(`${AI_ML_BASE_URL}/health`),
 };
 
 
@@ -651,7 +652,20 @@ export const voiceAssistantAPI = {
     switchName?: string;
     assistant?: string;
     voiceToken: string;
+    // Extended structured intent support (optional)
+    intentType?: string;
+    devices?: string[];
+    parameters?: Record<string, unknown>;
   }) => api.post('/voice-assistant/voice/command', data),
+
+  // Optional client-side voice event logging (best-effort)
+  logEvent: (event: {
+    level: 'info' | 'warn' | 'error';
+    stage: 'parse' | 'execute' | 'confirm' | 'permission' | 'other';
+    message: string;
+    data?: Record<string, unknown>;
+    ts?: number;
+  }) => api.post('/voice-assistant/log', event),
 
   // Device discovery for voice assistants
   discoverDevices: () => api.get('/voice-assistant/devices/discovery'),
@@ -674,4 +688,26 @@ export const voiceAssistantAPI = {
     command?: string;
     parameters?: Record<string, unknown>;
   }) => api.post('/voice-assistant/siri/webhook', data),
+};
+
+// Voice analytics API (for insights/dashboards)
+export const voiceAnalyticsAPI = {
+  summary: (days = 7) => api.get('/analytics/voice/summary', { params: { days } }),
+  timeseries: (granularity: 'hour' | 'day' = 'day', days = 7) =>
+    api.get('/analytics/voice/timeseries', { params: { granularity, days } }),
+  topIntents: (limit = 10, days = 7) => api.get('/analytics/voice/top-intents', { params: { limit, days } }),
+  topErrors: (limit = 10, days = 7) => api.get('/analytics/voice/top-errors', { params: { limit, days } }),
+};
+
+// Energy breakdown API (new immutable aggregate powered analytics)
+export const energyAPI = {
+  summary: () => api.get('/analytics/energy-summary'),
+  dailyBreakdown: (date: string, classroom?: string, deviceId?: string) =>
+    api.get('/analytics/energy-breakdown/daily', { params: { date, classroom, deviceId } }),
+  hourlyBreakdown: (date: string, classroom?: string, deviceId?: string) =>
+    api.get('/analytics/energy-breakdown/hourly', { params: { date, classroom, deviceId } }),
+  monthlyBreakdown: (year: number, month: number, classroom?: string, deviceId?: string) =>
+    api.get('/analytics/energy-breakdown/monthly', { params: { year, month, classroom, deviceId } }),
+  yearlyBreakdown: (year: number, classroom?: string) =>
+    api.get('/analytics/energy-breakdown/yearly', { params: { year, classroom } })
 };

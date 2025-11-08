@@ -101,8 +101,13 @@ mqttClient.on('message', (topic, message) => {
           }
 
           // Update device status
+          const wasOnline = device.status === 'online';
           device.status = 'online';
           device.lastSeen = new Date();
+          // Only set onlineSince if device was previously offline or onlineSince is missing
+          if (!wasOnline || !device.onlineSince) {
+            device.onlineSince = new Date();
+          }
 
           let stateChanged = false;
           const stateChanges = []; // Track state changes for ActivityLog
@@ -491,6 +496,39 @@ mqttClient.on('message', (topic, message) => {
 
                   console.log(`[ACTIVITY] Logged '${source}' switch event: ${device.name} - ${switchInfo.name} -> ${data.state ? 'ON' : 'OFF'} by ${data.userName || source}`);
 
+                  // Monitoring rule: Turn off switches if turned on between 8 AM and 9 AM IST
+                  const now = new Date();
+                  const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+                  const istTime = new Date(now.getTime() + istOffset);
+                  const hour = istTime.getUTCHours();
+                  if (hour >= 8 && hour < 9 && data.state === true) {
+                    console.log(`[MONITORING RULE] Turning off switch ${switchInfo.name} on device ${device.name} during 8-9 AM monitoring period`);
+                    
+                    // Send off command
+                    sendMqttSwitchCommand(normalizedMac, data.gpio, false, { id: 'system', name: 'Monitoring System' });
+                    
+                    // Log the automated off action
+                    await ActivityLog.create({
+                      deviceId: device._id,
+                      deviceName: device.name,
+                      switchId: switchInfo._id,
+                      switchName: switchInfo.name,
+                      action: 'off',
+                      triggeredBy: 'monitoring',
+                      userId: null,
+                      userName: 'Monitoring System',
+                      classroom: device.classroom,
+                      location: device.location,
+                      ip: 'System',
+                      userAgent: 'Automated Monitoring',
+                      context: {
+                        source: 'monitoring_rule',
+                        gpio: data.gpio,
+                        reason: 'Switched on during 8-9 AM monitoring period'
+                      }
+                    });
+                  }
+
                   // 2. Ingest to NEW power tracking system
                   try {
                     // Build switch state map for all switches on this device
@@ -727,7 +765,7 @@ function sendDeviceConfigToESP32(macAddress) {
             activeStartTime: device.pirDetectionSchedule?.activeStartTime || '18:00',
             activeEndTime: device.pirDetectionSchedule?.activeEndTime || '22:00',
             activeDays: device.pirDetectionSchedule?.daysOfWeek || [],
-            timezone: 'IST-5:30'
+            timezone: 'IST-5:30IST' // POSIX format with no DST: IST is UTC+5:30
           }
         };
 
@@ -1025,7 +1063,7 @@ const connectDB = async (retries = 5) => {
     // Initialize aggregation service
     try {
       const aggregationService = require('./services/aggregationService');
-      // await aggregationService.initialize();
+      await aggregationService.initialize();
       logger.info('[NEW_POWER] Aggregation service initialized');
     } catch (error) {
       logger.error('[NEW_POWER] Aggregation service initialization error:', error);

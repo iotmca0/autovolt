@@ -159,7 +159,7 @@ export interface ActivityLog {
   switchId?: string;
   switchName?: string;
   action: 'on' | 'off' | 'toggle' | 'created' | 'updated' | 'deleted';
-  triggeredBy: 'user' | 'schedule' | 'pir' | 'master' | 'system';
+  triggeredBy: 'user' | 'schedule' | 'pir' | 'master' | 'system' | 'manual_switch' | 'voice_assistant' | 'monitoring';
   userId?: string;
   userName?: string;
   location: string;
@@ -181,6 +181,7 @@ export interface ActivityLog {
   };
   isManualOverride?: boolean;
   metadata?: any;
+  context?: any;
 }
 
 export interface Holiday {
