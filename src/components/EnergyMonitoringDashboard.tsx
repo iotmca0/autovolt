@@ -233,14 +233,19 @@ const EnergyMonitoringDashboard: React.FC = () => {
         
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
           <Select value={selectedDevice} onValueChange={setSelectedDevice}>
-            <SelectTrigger className="w-full md:w-[180px]">
+            <SelectTrigger className="w-full md:w-[200px]">
               <SelectValue placeholder="Select Device" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Devices</SelectItem>
               {devices.map((device) => (
                 <SelectItem key={device.id} value={device.id}>
-                  {device.name}
+                  <div className="flex items-center justify-between w-full gap-2">
+                    <span className="truncate">{device.name}</span>
+                    <span className="text-[10px] shrink-0">
+                      {device.status === 'online' ? '🟢' : '⚪'}
+                    </span>
+                  </div>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -281,6 +286,25 @@ const EnergyMonitoringDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* Selected Device Info Banner - Shows when filtering by offline device */}
+      {selectedDevice !== 'all' && devices.find(d => d.id === selectedDevice)?.status === 'offline' && (
+        <Card className="bg-amber-50 dark:bg-amber-950/20 border-amber-300">
+          <CardContent className="pt-4">
+            <div className="flex items-start gap-3">
+              <Info className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-semibold text-amber-900 dark:text-amber-100">
+                  Viewing offline device: {devices.find(d => d.id === selectedDevice)?.name}
+                </p>
+                <p className="text-amber-800 dark:text-amber-200 mt-1">
+                  Historical power consumption data is being displayed. Real-time tracking will resume when the device comes back online.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Today's Usage */}
@@ -298,7 +322,7 @@ const EnergyMonitoringDashboard: React.FC = () => {
             <div className="text-xs text-muted-foreground">
               Cost: ₹{(displayToday?.cost ?? todayData?.cost)?.toFixed(2) || '0.00'}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="outline" className="text-xs">
                 {todayData?.onlineDevices || 0} devices online
               </Badge>
@@ -522,6 +546,9 @@ const EnergyMonitoringDashboard: React.FC = () => {
                 <li>Hover over any bar or calendar day to see detailed information</li>
                 <li>Use device and classroom filters to analyze specific areas</li>
                 <li>Data updates automatically every 30 seconds for real-time monitoring</li>
+                <li className="font-medium text-blue-900 dark:text-blue-100">
+                  <strong>Offline devices:</strong> Historical power consumption data is preserved and shown in charts even when devices are offline (marked with ○)
+                </li>
               </ul>
             </div>
           </div>

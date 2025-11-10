@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { useDevices } from '@/hooks/useDevices';
 import { useToast } from '@/hooks/use-toast';
 import { MasterSwitchCard } from '@/components/MasterSwitchCard';
-import { FloatingVoiceMic } from '@/components/FloatingVoiceMic';
 import { Cpu } from 'lucide-react';
 
 const Switches = () => {
@@ -125,18 +124,6 @@ const Switches = () => {
         offlineDevices={devices.filter(d => d.status !== 'online').length}
         onMasterToggle={handleMasterToggle}
         isBusy={false}
-      />
-
-      {/* Floating Voice Control Button */}
-      <FloatingVoiceMic
-        onCommandExecuted={(result) => {
-          if (result.success) {
-            toast({
-              title: "Voice Command Executed",
-              description: result.message,
-            });
-          }
-        }}
       />
 
       {filteredDevices.length === 0 ? (

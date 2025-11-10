@@ -187,6 +187,29 @@ function removeFillerWords(phrase) {
 
 function interpretVoiceCommand(rawCommand) {
   const normalized = normalizeSpeechText(rawCommand);
+  
+  // Check for batch commands (separated by "and", "then", "also", "plus")
+  const batchSeparators = /\b(and|then|also|plus|after that|next)\b/gi;
+  const hasMultipleCommands = batchSeparators.test(normalized);
+  
+  if (hasMultipleCommands) {
+    // Split into multiple commands
+    const commands = normalized.split(batchSeparators).filter(cmd => {
+      const trimmed = cmd.trim();
+      return trimmed.length > 0 && !/^(and|then|also|plus|after that|next)$/i.test(trimmed);
+    });
+    
+    if (commands.length > 1) {
+      return {
+        success: true,
+        isBatch: true,
+        batchCommands: commands.map(cmd => interpretVoiceCommand(cmd)),
+        raw: rawCommand.trim(),
+        normalized
+      };
+    }
+  }
+  
   const confirmationOnlyPattern = /^(yes|yeah|yup|sure|ok|okay|alright|confirm|go ahead|do it|please do|that is correct|correct|make it so|proceed)(?:\s+(now|please))?$/;
   const isConfirmation = confirmationOnlyPattern.test(normalized);
   const usesPronoun = /\b(it|them|those|that|same|this|these|there|here)\b/.test(normalized);
@@ -709,6 +732,55 @@ async function processVoiceCommand(command, deviceName, switchName, user) {
           normalized: interpretation.normalized || normalizeSpeechText(command),
           reason: interpretation.reason,
           raw: interpretation.raw || command
+        }
+      };
+    }
+    
+    // Handle batch commands
+    if (interpretation.isBatch && interpretation.batchCommands) {
+      logger.info(`[Voice Command] Processing batch: ${interpretation.batchCommands.length} commands`);
+      
+      const results = [];
+      let allSuccess = true;
+      
+      for (const subCommand of interpretation.batchCommands) {
+        if (!subCommand.success) {
+          results.push({
+            success: false,
+            message: subCommand.message || 'Failed to parse command',
+            command: subCommand.raw
+          });
+          allSuccess = false;
+          continue;
+        }
+        
+        // Process each command individually
+        const result = await processVoiceCommand(subCommand.raw, null, null, user);
+        results.push({
+          ...result,
+          command: subCommand.raw
+        });
+        
+        if (!result.success) {
+          allSuccess = false;
+        }
+      }
+      
+      const successCount = results.filter(r => r.success).length;
+      const totalCount = results.length;
+      
+      return {
+        success: allSuccess,
+        isBatch: true,
+        message: allSuccess 
+          ? `Successfully executed all ${totalCount} commands` 
+          : `Executed ${successCount} out of ${totalCount} commands`,
+        actionType: 'batch',
+        results,
+        context: {
+          totalCommands: totalCount,
+          successfulCommands: successCount,
+          raw: interpretation.raw
         }
       };
     }

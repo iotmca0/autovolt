@@ -21,7 +21,8 @@ import {
   Ticket,
   Settings2,
   Server,
-  ExternalLink
+  ExternalLink,
+  Mic
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useAuth } from '@/hooks/useAuth';
@@ -59,7 +60,6 @@ const navigationSections = [
     items: [
       { name: 'Users', icon: Users, href: '/dashboard/users', current: false, requiresPermission: 'canManageUsers' },
       { name: 'Role Management', icon: Shield, href: '/dashboard/roles', current: false, requiresPermission: 'canManageUsers' },
-      { name: 'Permissions', icon: UserCheck, href: '/dashboard/permissions', current: false, requiresPermission: 'canApproveUsers' },
     ]
   },
   {
@@ -68,6 +68,7 @@ const navigationSections = [
       { name: 'System Health', icon: Server, href: '/dashboard/system-health', adminOnly: true },
       { name: 'Analytics & Monitoring', icon: BarChart3, href: '/dashboard/analytics', adminOnly: true },
       { name: 'AI/ML Insights', icon: Brain, href: '/dashboard/aiml', adminOnly: true },
+      { name: 'Voice Settings', icon: Mic, href: '/dashboard/voice-settings', current: false },
       { name: 'Grafana', icon: Activity, href: '/dashboard/grafana', adminOnly: true },
     ]
   },

@@ -17,6 +17,7 @@ import { ThemeProvider } from '@/components/ThemeProvider';
 import { LogoLoader } from '@/components/Logo';
 import { SkipToContent } from '@/components/SkipToContent';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { FloatingVoiceMic } from '@/components/FloatingVoiceMic';
 
 // Lazy load components for better performance
 const Index = lazy(() => import("./pages/Index"));
@@ -48,6 +49,7 @@ const ESP32GrafanaPage = lazy(() => import("./pages/ESP32GrafanaPage"));
 const PrometheusPage = lazy(() => import("./pages/PrometheusPage"));
 const SocketTest = lazy(() => import("./components/SocketTest"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
+const VoiceSettingsPage = lazy(() => import("./pages/VoiceSettingsPage").then(module => ({ default: module.VoiceSettingsPage })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -138,6 +140,7 @@ const App = () => {
                       <Route path="system-health" element={<SystemHealthPage />} />
                       <Route path="tickets" element={<Tickets />} />
                       <Route path="aiml" element={<AIMLPage />} />
+                      <Route path="voice-settings" element={<VoiceSettingsPage />} />
                       <Route path="analytics" element={<AnalyticsPage />} />
                       <Route path="grafana" element={<GrafanaPage />} />
                       <Route path="grafana-public" element={<GrafanaPublic />} />
@@ -153,6 +156,8 @@ const App = () => {
                   </ErrorBoundary>
               </BrowserRouter>
               <GlobalLoadingOverlay />
+              {/* Global Floating Voice Button - Available on all pages */}
+              <FloatingVoiceMic />
             </TooltipProvider>
           </GlobalLoadingProvider>
         </SocketProvider>
