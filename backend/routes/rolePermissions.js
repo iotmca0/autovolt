@@ -3,6 +3,7 @@ const router = express.Router();
 const RolePermissions = require('../models/RolePermissions');
 const { auth, authorize } = require('../middleware/auth');
 const { logger } = require('../middleware/logger');
+const User = require('../models/User');
 
 // All role permissions routes require authentication
 router.use(auth);
@@ -20,6 +21,7 @@ const toClientRolePermissions = (rp) => ({
   ticketManagement: rp.ticketManagement,
   systemManagement: rp.systemManagement,
   extensionManagement: rp.extensionManagement,
+  voiceControl: rp.voiceControl,
   calendarIntegration: rp.calendarIntegration,
   esp32Management: rp.esp32Management,
   bulkOperations: rp.bulkOperations,
@@ -216,6 +218,32 @@ router.put('/:role', async (req, res) => {
       changes: Object.keys(updates)
     });
 
+    // Notify all users with this role about permission changes
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        // Find all users with this role
+        const affectedUsers = await User.find({ role, isActive: true }).select('_id name');
+        
+        // Emit event to each user's room
+        affectedUsers.forEach(user => {
+          const userRoom = `user_${user._id}`;
+          io.to(userRoom).emit('role_permissions_updated', {
+            role,
+            message: `Your ${role} permissions have been updated. Please refresh to see changes.`,
+            updatedBy: req.user.name,
+            timestamp: new Date(),
+            changedPermissions: Object.keys(updates)
+          });
+        });
+
+        logger.info(`[ROLE_PERMISSIONS] Notified ${affectedUsers.length} users about permission changes for role: ${role}`);
+      }
+    } catch (notifyError) {
+      logger.error('[ROLE_PERMISSIONS] Failed to notify users about permission changes:', notifyError);
+      // Don't fail the request if notification fails
+    }
+
     res.json({
       success: true,
       data: toClientRolePermissions(rolePermissions),
@@ -272,6 +300,32 @@ router.patch('/:role', async (req, res) => {
       rolePermissionsId: rolePermissions._id,
       changes: Object.keys(updates)
     });
+
+    // Notify all users with this role about permission changes
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        // Find all users with this role
+        const affectedUsers = await User.find({ role, isActive: true }).select('_id name');
+        
+        // Emit event to each user's room
+        affectedUsers.forEach(user => {
+          const userRoom = `user_${user._id}`;
+          io.to(userRoom).emit('role_permissions_updated', {
+            role,
+            message: `Your ${role} permissions have been updated. Please refresh to see changes.`,
+            updatedBy: req.user.name,
+            timestamp: new Date(),
+            changedPermissions: Object.keys(updates)
+          });
+        });
+
+        logger.info(`[ROLE_PERMISSIONS] Notified ${affectedUsers.length} users about permission changes for role: ${role}`);
+      }
+    } catch (notifyError) {
+      logger.error('[ROLE_PERMISSIONS] Failed to notify users about permission changes:', notifyError);
+      // Don't fail the request if notification fails
+    }
 
     res.json({
       success: true,

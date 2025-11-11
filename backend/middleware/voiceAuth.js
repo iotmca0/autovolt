@@ -17,30 +17,34 @@ setInterval(() => {
 
 /**
  * Create a voice session token for authenticated user
+ * @param {Object} user - User object
+ * @param {Object} voicePermissions - Voice control permissions from RolePermissions
  */
-function createVoiceSession(user) {
+function createVoiceSession(user, voicePermissions = {}) {
   const voiceToken = jwt.sign(
     {
       userId: user._id.toString(),
       role: user.role,
       type: 'voice_session',
+      permissions: voicePermissions,
       exp: Math.floor(Date.now() / 1000) + (60 * 60) // 1 hour
     },
     process.env.JWT_SECRET
   );
 
-  // Store session metadata
+  // Store session metadata including permissions
   voiceSessions.set(voiceToken, {
     userId: user._id.toString(),
     userName: user.name,
     role: user.role,
+    permissions: voicePermissions,
     createdAt: new Date(),
     lastUsed: new Date(),
     expiresAt: Date.now() + (60 * 60 * 1000), // 1 hour
     commandCount: 0
   });
 
-  logger.info('[Voice Auth] Created voice session for user:', user.name);
+  logger.info('[Voice Auth] Created voice session for user:', user.name, 'with permissions:', voicePermissions);
 
   return {
     voiceToken,
@@ -49,7 +53,8 @@ function createVoiceSession(user) {
       id: user._id,
       name: user.name,
       role: user.role
-    }
+    },
+    permissions: voicePermissions
   };
 }
 

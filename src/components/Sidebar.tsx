@@ -65,18 +65,18 @@ const navigationSections = [
   {
     title: 'Analytics & Monitoring',
     items: [
-      { name: 'System Health', icon: Server, href: '/dashboard/system-health', adminOnly: true },
-      { name: 'Analytics & Monitoring', icon: BarChart3, href: '/dashboard/analytics', adminOnly: true },
-      { name: 'AI/ML Insights', icon: Brain, href: '/dashboard/aiml', adminOnly: true },
+      { name: 'System Health', icon: Server, href: '/dashboard/system-health', requiresPermission: 'canViewAnalytics' },
+      { name: 'Analytics & Monitoring', icon: BarChart3, href: '/dashboard/analytics', requiresPermission: 'canViewAnalytics' },
+      { name: 'AI/ML Insights', icon: Brain, href: '/dashboard/aiml', requiresPermission: 'canViewAnalytics' },
       { name: 'Voice Settings', icon: Mic, href: '/dashboard/voice-settings', current: false },
-      { name: 'Grafana', icon: Activity, href: '/dashboard/grafana', adminOnly: true },
+      { name: 'Grafana', icon: Activity, href: '/dashboard/grafana', requiresPermission: 'canViewAnalytics' },
     ]
   },
   {
     title: 'Support & Logs',
     items: [
       { name: 'Support Tickets', icon: Ticket, href: '/dashboard/tickets', current: false },
-      { name: 'Active Logs', icon: FileText, href: '/dashboard/logs', current: false, adminOnly: true },
+      { name: 'Active Logs', icon: FileText, href: '/dashboard/logs', current: false, requiresPermission: 'canViewAuditLogs' },
     ]
   },
   {

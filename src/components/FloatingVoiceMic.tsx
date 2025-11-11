@@ -10,6 +10,10 @@ import { TextToSpeech } from '@capacitor-community/text-to-speech';
 import { useVoiceSettings } from '@/hooks/useVoiceSettings';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { AutoVoltAssistant } from './AutoVoltAssistant';
+import { androidVoiceHelper } from '@/utils/androidVoiceHelper';
+import { useLocation } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 
 interface FloatingVoiceMicProps {
   onCommandExecuted?: (result: any) => void;
@@ -18,6 +22,8 @@ interface FloatingVoiceMicProps {
 export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExecuted }) => {
   const { toast } = useToast();
   const { voiceToken, isAuthenticated, isLoading: sessionLoading, createVoiceSession, clearVoiceSession } = useVoiceSession();
+  const location = useLocation();
+  const { user } = useAuth();
   
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -28,6 +34,10 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
   const [audioLevel, setAudioLevel] = useState(0);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [retryCommand, setRetryCommand] = useState<string | null>(null);
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
+  const [pendingAction, setPendingAction] = useState<any>(null);
+  const [lastClickTime, setLastClickTime] = useState(0);
+  const [showAssistantPanel, setShowAssistantPanel] = useState(false);
   
   const voiceSettings = useVoiceSettings();
   
@@ -63,20 +73,56 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
   const buttonRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
+  // Timer to auto-cancel confirmation mode if user stays silent
+  const confirmationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track latest awaitingConfirmation state to avoid stale closure in timer
+  const awaitingConfirmationRef = useRef(false);
+  // Auto stop timer to prevent listening forever when silent
+  const autoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track latest listening state to avoid stale closures
+  const isListeningRef = useRef(false);
+  // Avoid duplicate native init in React 18 StrictMode (dev mounts effects twice)
+  const initOnceRef = useRef(false);
 
   // Check browser support OR Capacitor native support
   useEffect(() => {
+    if (initOnceRef.current) {
+      // In React 18 StrictMode dev, effects mount twice; prevent double init/log noise
+      return;
+    }
+    initOnceRef.current = true;
     const isNative = Capacitor.isNativePlatform();
     
-    // In Capacitor WebView, Web Speech API should work directly
-    const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    
-    if (SpeechRecognitionAPI) {
-      setIsSpeechSupported(true);
-      console.log('🎤 Speech recognition available:', isNative ? 'Native WebView' : 'Browser');
+    // Initialize Android-specific voice features
+    if (isNative && Capacitor.getPlatform() === 'android') {
+      console.log('📱 Initializing Android voice features...');
+      androidVoiceHelper.initialize().then(available => {
+        if (available) {
+          console.log('✅ Android native voice features ready');
+          setIsSpeechSupported(true);
+        } else {
+          console.log('⚠️ Android native voice not available, trying WebView fallback');
+          // Fall back to Web Speech API in WebView
+          const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+          setIsSpeechSupported(!!SpeechRecognitionAPI);
+        }
+      }).catch(err => {
+        console.error('❌ Android voice initialization failed:', err);
+        // Fall back to Web Speech API
+        const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        setIsSpeechSupported(!!SpeechRecognitionAPI);
+      });
     } else {
-      setIsSpeechSupported(false);
-      console.log('❌ Speech recognition NOT available');
+      // In Capacitor WebView or browser, Web Speech API should work directly
+      const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      
+      if (SpeechRecognitionAPI) {
+        setIsSpeechSupported(true);
+        console.log('🎤 Speech recognition available:', isNative ? 'Native WebView' : 'Browser');
+      } else {
+        setIsSpeechSupported(false);
+        console.log('❌ Speech recognition NOT available');
+      }
     }
     
     // Initialize speech synthesis with retry for WebView
@@ -121,61 +167,140 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
         }, 500);
       } else {
         console.warn('⚠️ Speech Synthesis not available yet, will retry...');
-        // Retry after 1 second (WebView might still be initializing)
-        setTimeout(() => {
-          if (window.speechSynthesis) {
-            console.log('✅ Speech Synthesis now available on retry');
-            initSpeechSynthesis();
-          } else {
-            console.warn('⚠️ Speech Synthesis still not available');
+        
+        // Retry with exponential backoff for WebView initialization
+        let retryCount = 0;
+        const maxRetries = 5;
+        const retryIntervals = [500, 1000, 2000, 3000, 5000];
+        
+        const retryInit = () => {
+          if (retryCount >= maxRetries) {
+            console.error('❌ Speech Synthesis failed to initialize after', maxRetries, 'attempts');
+            console.warn('💡 Voice responses will use toast notifications as fallback');
+            return;
           }
-        }, 1000);
+          
+          setTimeout(() => {
+            if (window.speechSynthesis) {
+              console.log('✅ Speech Synthesis now available on retry', retryCount + 1);
+              initSpeechSynthesis();
+            } else {
+              console.warn(`⚠️ Retry ${retryCount + 1}/${maxRetries} - Speech Synthesis still not available`);
+              retryCount++;
+              retryInit();
+            }
+          }, retryIntervals[retryCount]);
+        };
+        
+        retryInit();
       }
     };
     
     initSpeechSynthesis();
   }, []);
 
-  // Initialize voice session on mount
+  // Initialize voice session on mount (only if main app is logged in)
   useEffect(() => {
+    // Check if user is logged in to main app
+    const mainToken = localStorage.getItem('auth_token');
+    
+    if (!mainToken) {
+      console.log('⚠️ User not logged in to main app - voice features disabled');
+      return;
+    }
+    
     if (!isAuthenticated && !sessionLoading && isSpeechSupported) {
       console.log('🔐 Attempting to create voice session...');
       createVoiceSession().catch(err => {
         console.error('❌ Failed to create voice session:', err);
         console.error('Error details:', err.response?.data || err.message);
-        toast({
-          title: '⚠️ Voice Session Error',
-          description: 'Please login first to use voice commands',
-          variant: 'destructive'
-        });
+        // Only show toast if it's not a token error (user should be logged in already)
+        if (err.response?.data?.code !== 'NO_TOKEN') {
+          toast({
+            title: '⚠️ Voice Session Error',
+            description: 'Failed to initialize voice assistant',
+            variant: 'destructive'
+          });
+        }
       });
     } else if (isAuthenticated) {
       console.log('✅ Voice session already authenticated');
     }
   }, [isAuthenticated, sessionLoading, createVoiceSession, isSpeechSupported, toast]);
 
+  // Keep refs in sync with state
+  useEffect(() => {
+    isListeningRef.current = isListening;
+  }, [isListening]);
+
+  // Helper: stop listening safely and clear timers
+  const stopListening = (reason?: string) => {
+    if (reason) {
+      console.log(`🛑 Stopping recognition${reason ? ` (${reason})` : ''}`);
+    }
+    if (autoStopTimerRef.current) {
+      clearTimeout(autoStopTimerRef.current);
+      autoStopTimerRef.current = null;
+    }
+    if (confirmationTimerRef.current && !awaitingConfirmationRef.current) {
+      clearTimeout(confirmationTimerRef.current);
+      confirmationTimerRef.current = null;
+    }
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
+    }
+    if (isListeningRef.current) setIsListening(false);
+  };
+
+  // Helper: schedule auto stop while listening when idle
+  const scheduleAutoStop = () => {
+    if (autoStopTimerRef.current) {
+      clearTimeout(autoStopTimerRef.current);
+      autoStopTimerRef.current = null;
+    }
+    // Never auto-stop in continuous mode
+    if (voiceSettings.continuousMode) return;
+    const timeoutMs = awaitingConfirmationRef.current ? 15000 : 8000; // 15s for confirmation, 8s normal
+    autoStopTimerRef.current = setTimeout(() => {
+      // Only stop if still listening and not speaking
+      if (isListeningRef.current && !isSpeaking) {
+        stopListening('auto-timeout');
+        toast({
+          title: 'Listening timed out',
+          description: 'No speech detected. Tap mic to try again.',
+        });
+      }
+    }, timeoutMs);
+  };
+
   // Initialize speech recognition (lazy initialization - only when needed)
   const initRecognition = () => {
-    if (!isSpeechSupported || recognitionRef.current) return;
+    if (!isSpeechSupported) return;
+    if (recognitionRef.current) return; // already initialized
 
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
 
-    recognition.continuous = voiceSettings.continuousMode;
+    // CRITICAL: Always use continuous mode to prevent auto-stop during confirmation flow
+    // When awaiting confirmation, we need recognition to stay active for the user's response
+    recognition.continuous = true;
     recognition.interimResults = voiceSettings.showTranscript;
     recognition.lang = voiceSettings.language;
 
     recognition.onstart = () => {
+      console.log('🎤 Recognition onstart event fired, isListening:', isListening);
       setIsListening(true);
       setTranscript('');
       setInterimTranscript('');
+      
+      const isConfirmationMode = awaitingConfirmationRef.current;
       toast({
-        title: '🎤 Listening...',
-        description: voiceSettings.continuousMode ? 'Say "stop" to end' : 'Speak your command now',
+        title: isConfirmationMode ? '🔔 Listening for confirmation...' : '🎤 Listening...',
+        description: isConfirmationMode ? 'Say "yes" to confirm or "no" to cancel' : 'Speak your command now',
       });
       
-      // Load suggestions
-      if (voiceSettings.showSuggestions) {
+      // Load suggestions only if not in confirmation mode
+      if (voiceSettings.showSuggestions && !isConfirmationMode) {
         setSuggestions([
           'Turn on all lights',
           'Turn off fans in classroom',
@@ -184,52 +309,54 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
           'What\'s the temperature?',
         ]);
       }
+      // Start inactivity auto-stop timer
+      scheduleAutoStop();
+    };
+
+    // Enhanced noise filtering and confidence scoring
+    const processRecognitionResult = (event: any) => {
+      let finalTranscript = '';
+      let interim = '';
+      let maxConfidence = 0;
+      
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const transcript = result[0].transcript.trim();
+        
+        if (result.isFinal) {
+          // Filter out noise: ignore very short or very long transcripts
+          if (transcript.length < 2 || transcript.length > 100) continue;
+          
+          // Check confidence score (if available)
+          const confidence = result[0].confidence || 0.5;
+          if (confidence < 0.3) continue; // Too low confidence
+          
+          maxConfidence = Math.max(maxConfidence, confidence);
+          finalTranscript += (finalTranscript ? ' ' : '') + transcript;
+        } else {
+          interim += transcript;
+        }
+      }
+      
+      // Only process if we have reasonable confidence
+      if (finalTranscript && maxConfidence > 0.4) {
+        // Reset inactivity timer and process command
+        scheduleAutoStop();
+        processCommand(finalTranscript);
+      }
     };
 
     recognition.onresult = (event: any) => {
-      let finalTranscript = '';
-      let interim = '';
-      
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcriptPiece = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcriptPiece;
-        } else {
-          interim += transcriptPiece;
-        }
-      }
-      
-      if (voiceSettings.showTranscript) {
-        setInterimTranscript(interim);
-        if (finalTranscript) {
-          setTranscript(prev => prev + ' ' + finalTranscript);
-        }
-      }
-      
-      if (finalTranscript) {
-        const command = finalTranscript.trim();
-        
-        // Check for stop command in continuous mode
-        if (voiceSettings.continuousMode && /^(stop|exit|quit|end)$/i.test(command)) {
-          recognition.stop();
-          setIsListening(false);
-          toast({ title: 'Voice control stopped', description: 'Click to start again' });
-          return;
-        }
-        
-        processCommand(command);
-        
-        // In continuous mode, don't stop after each command
-        if (!voiceSettings.continuousMode) {
-          setTranscript('');
-          setInterimTranscript('');
-        }
-      }
+      processRecognitionResult(event);
     };
 
     recognition.onerror = (event: any) => {
       console.error('Speech recognition error:', event.error);
       setIsListening(false);
+      if (autoStopTimerRef.current) {
+        clearTimeout(autoStopTimerRef.current);
+        autoStopTimerRef.current = null;
+      }
       
       if (event.error !== 'no-speech' && event.error !== 'aborted') {
         let errorMessage = 'Voice recognition error';
@@ -255,7 +382,37 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
     };
 
     recognition.onend = () => {
-      setIsListening(false);
+      const wasAwaitingConfirmation = awaitingConfirmationRef.current;
+      console.log('🎤 Recognition onend event fired, awaitingConfirmation:', wasAwaitingConfirmation);
+      if (autoStopTimerRef.current) {
+        clearTimeout(autoStopTimerRef.current);
+        autoStopTimerRef.current = null;
+      }
+      
+      // If we're awaiting confirmation and recognition ended unexpectedly, restart it
+      if (wasAwaitingConfirmation && !isListening) {
+        console.log('⚠️ Recognition ended during confirmation wait - restarting...');
+        try {
+          setTimeout(() => {
+            if (awaitingConfirmationRef.current && recognitionRef.current) {
+              recognitionRef.current.start();
+              console.log('✅ Recognition restarted for confirmation');
+            }
+          }, 100);
+        } catch (err) {
+          console.error('Failed to restart recognition:', err);
+        }
+      } else {
+        console.log('🛑 Setting isListening to false');
+        setIsListening(false);
+      }
+    };
+
+    // If we detect end of speech and we're not in confirmation or continuous mode, stop quickly
+    recognition.onspeechend = () => {
+      if (!voiceSettings.continuousMode && !awaitingConfirmationRef.current) {
+        stopListening('speech-end');
+      }
     };
 
     recognitionRef.current = recognition;
@@ -267,8 +424,21 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
+      if (confirmationTimerRef.current) {
+        clearTimeout(confirmationTimerRef.current);
+        confirmationTimerRef.current = null;
+      }
+      if (autoStopTimerRef.current) {
+        clearTimeout(autoStopTimerRef.current);
+        autoStopTimerRef.current = null;
+      }
     };
   }, []);
+
+  // Keep a ref in sync with awaitingConfirmation for use inside timers
+  useEffect(() => {
+    awaitingConfirmationRef.current = awaitingConfirmation;
+  }, [awaitingConfirmation]);
 
   // Calculate snap position to nearest edge or corner
   const snapToEdge = (x: number, y: number): { x: number; y: number } => {
@@ -446,6 +616,266 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
     }
   };
 
+  // Unified speak response function
+  const speakResponse = async (text: string) => {
+    // Check if voice responses are enabled (default to true if not set)
+    const voiceResponsesEnabled = voiceSettings.voiceResponses !== false;
+    
+    if (!voiceResponsesEnabled) {
+      console.log('🔊 Voice responses disabled in settings');
+      return;
+    }
+
+    console.log('🔊 Speaking response:', text);
+
+    // Prevent TTS from being captured by recognition: pause if currently listening
+    if (recognitionRef.current && isListeningRef.current) {
+      stopListening('tts-playing');
+    }
+
+    try {
+      setIsSpeaking(true);
+      
+      // Prefer Android native TTS for better quality
+      const isAndroid = Capacitor.getPlatform() === 'android';
+      
+      if (isAndroid && androidVoiceHelper.isAndroidPlatform()) {
+        console.log('🔊 Using Android native TTS (high quality)');
+        
+        try {
+          await androidVoiceHelper.speak(text, {
+            language: voiceSettings.language || 'en-US',
+            rate: voiceSettings.ttsRate,
+            pitch: 1.0,
+            volume: voiceSettings.ttsVolume,
+            category: 'ambient'
+          });
+          console.log('🔊 Android native TTS completed');
+          setIsSpeaking(false);
+          return; // Success, exit early
+        } catch (androidError) {
+          console.warn('🔊 Android native TTS failed, trying fallback:', androidError);
+          // Fall through to Capacitor TTS
+        }
+      }
+      
+      // Try Capacitor TTS (works on both Android and iOS) if plugin is bridged
+      if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('TextToSpeech')) {
+        console.log('🔊 Using Capacitor TTS');
+        
+        try {
+          await TextToSpeech.speak({
+            text: text,
+            lang: voiceSettings.language || 'en-US',
+            rate: voiceSettings.ttsRate,
+            volume: voiceSettings.ttsVolume,
+            pitch: 1.0,
+            category: 'ambient'
+          });
+          console.log('🔊 Capacitor TTS completed');
+          setIsSpeaking(false);
+          return; // Success, exit early
+        } catch (capacitorError) {
+          console.warn('🔊 Capacitor TTS failed, trying browser fallback:', capacitorError);
+          // Fall through to browser TTS
+        }
+      }
+      
+      // Browser TTS fallback (works in web browsers)
+      if (window.speechSynthesis) {
+        console.log('🔊 Using browser Speech Synthesis');
+        
+        return new Promise<void>((resolve, reject) => {
+          try {
+            // Cancel any ongoing speech first
+            window.speechSynthesis.cancel();
+            
+            // Wait a bit for cancel to complete (Android WebView needs this)
+            setTimeout(() => {
+              const utterance = new SpeechSynthesisUtterance(text);
+              utterance.rate = voiceSettings.ttsRate || 1.0;
+              utterance.volume = voiceSettings.ttsVolume || 1.0;
+              utterance.pitch = 1.0;
+              
+              // Set voice if available
+              const voices = window.speechSynthesis.getVoices();
+              
+              if (voices.length > 0) {
+                const selectedVoice = voices.find(v => v.name === voiceSettings.ttsVoice);
+                if (selectedVoice) {
+                  utterance.voice = selectedVoice;
+                } else {
+                  const defaultVoice = voices.find(v => v.default) || voices[0];
+                  utterance.voice = defaultVoice;
+                }
+              }
+              
+              utterance.onstart = () => {
+                console.log('🔊 Browser TTS started');
+              };
+              
+              utterance.onend = () => {
+                console.log('🔊 Browser TTS completed');
+                setIsSpeaking(false);
+                resolve();
+              };
+              
+              utterance.onerror = (e) => {
+                console.error('🔊 Browser TTS error:', e.error);
+                setIsSpeaking(false);
+                
+                // Show toast as ultimate fallback
+                toast({
+                  title: '🔊 Voice Response',
+                  description: text,
+                  duration: 3000,
+                });
+                
+                resolve(); // Resolve anyway to prevent hanging
+              };
+              
+              window.speechSynthesis.speak(utterance);
+            }, 100); // Small delay for Android WebView
+          } catch (browserError) {
+            console.error('🔊 Browser TTS setup error:', browserError);
+            setIsSpeaking(false);
+            
+            // Show toast as fallback
+            toast({
+              title: '🔊 Voice Response',
+              description: text,
+              duration: 3000,
+            });
+            
+            resolve();
+          }
+        });
+      } else {
+        console.warn('🔊 Speech Synthesis not available, using toast notification');
+        setIsSpeaking(false);
+        
+        // Show toast notification as fallback
+        toast({
+          title: '🔊 Voice Response',
+          description: text,
+          duration: 3000,
+        });
+      }
+    } catch (error) {
+      console.error('🔊 TTS Error:', error);
+      setIsSpeaking(false);
+      
+      // Show toast notification as ultimate fallback
+      toast({
+        title: '🔊 Voice Response',
+        description: text,
+        duration: 3000,
+      });
+    }
+  };
+
+  // Handle confirmation responses (yes/no)
+  const handleConfirmationResponse = async (response: string) => {
+    const normalizedResponse = response.toLowerCase().trim();
+    // Broad, token-based matching (word boundaries) so phrases like "yes please" or "no thanks" are accepted
+    const isConfirmed = /\b(yes|yeah|yep|sure|ok|okay|confirm|proceed|do it|go ahead|continue|execute|perform|start)\b/i.test(normalizedResponse);
+    const isCancelled = /\b(no|nope|cancel|stop|abort|nevermind|never mind|don't|do not|negative|reject|decline|forget it|skip)\b/i.test(normalizedResponse);
+    
+    if (isConfirmed && pendingAction) {
+      console.log('✅ Confirmation detected - stopping recognition');
+      // CRITICAL: Stop listening FIRST before any async operations
+      setIsListening(false);
+      setAwaitingConfirmation(false);
+      if (confirmationTimerRef.current) {
+        clearTimeout(confirmationTimerRef.current);
+        confirmationTimerRef.current = null;
+      }
+      
+      // Stop recognition immediately
+      stopListening('confirmed');
+      
+      await speakResponse('Confirmed. Executing action now.');
+      toast({
+        title: '✅ Confirmed',
+        description: 'Executing the action...',
+      });
+      
+      // Execute the pending action
+      await executePendingAction(pendingAction);
+      setPendingAction(null);
+    } else if (isCancelled) {
+      console.log('❌ Cancellation detected - stopping recognition');
+      // CRITICAL: Stop listening FIRST before any async operations
+      setIsListening(false);
+      setAwaitingConfirmation(false);
+      setPendingAction(null);
+      if (confirmationTimerRef.current) {
+        clearTimeout(confirmationTimerRef.current);
+        confirmationTimerRef.current = null;
+      }
+      
+      // Stop recognition immediately
+      stopListening('cancelled');
+      
+      await speakResponse('Action cancelled.');
+      toast({
+        title: '❌ Cancelled',
+        description: 'The action was not executed',
+      });
+    } else {
+      // Didn't understand, ask again
+      console.log('⚠️ Unclear confirmation response, re-prompting');
+      await speakResponse('Sorry, I didn\'t understand. Please say yes or no.');
+      toast({
+        title: '⚠️ Please confirm',
+        description: 'Say "yes" to proceed or "no" to cancel',
+      });
+      
+      // Keep listening for confirmation ONLY if not already listening
+      if (!isListening && recognitionRef.current) {
+        try {
+          recognitionRef.current.start();
+        } catch (err) {
+          console.error('Failed to restart listening for confirmation:', err);
+        }
+      }
+    }
+  };
+
+  // Execute the pending bulk action
+  const executePendingAction = async (action: any) => {
+    try {
+      const response = await voiceAssistantAPI.processVoiceCommand({
+        command: action.command,
+        assistant: 'web',
+        voiceToken: voiceToken || ''
+      });
+
+      const success = response.data.success;
+      const message = response.data.message || 'Action completed';
+      
+      await speakResponse(message);
+      
+      toast({
+        title: success ? '✅ Success' : '❌ Failed',
+        description: message,
+        variant: success ? 'default' : 'destructive'
+      });
+
+      if (success) {
+        onCommandExecuted?.(response.data);
+      }
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || 'Failed to execute action';
+      await speakResponse(errorMessage);
+      toast({
+        title: '❌ Error',
+        description: errorMessage,
+        variant: 'destructive'
+      });
+    }
+  };
+
   const handleClick = async (e: React.MouseEvent) => {
     // Don't trigger click if we were dragging
     if (dragMoved || isDragging) {
@@ -456,11 +886,26 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
     
     e.stopPropagation();
 
+    // Handle double-click to open assistant chatbot
+    const now = Date.now();
+    const timeSinceLastClick = now - lastClickTime;
+    setLastClickTime(now);
+    
+    if (timeSinceLastClick < 300) {
+      // Double-click detected - open assistant panel
+      console.log('🤖 Double-click detected - opening AutoVolt Assistant');
+      setShowAssistantPanel(true);
+      await speakResponse(`Hello! I'm ${voiceSettings.wakeWord || 'AutoVolt'}, your AI assistant. How can I help you today?`);
+      toast({
+        title: `🤖 ${voiceSettings.wakeWord || 'AutoVolt'} Assistant`,
+        description: 'Assistant panel opened. You can chat with me now!',
+      });
+      return;
+    }
+
     if (isListening) {
       // Stop listening
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
+      stopListening('manual-stop');
     } else {
       // Start listening
       if (!isAuthenticated) {
@@ -488,13 +933,18 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
       if (recognitionRef.current && !isListening) {
         try {
           recognitionRef.current.start();
-        } catch (error) {
-          console.error('Failed to start recognition:', error);
-          toast({
-            title: 'Microphone Error',
-            description: 'Please allow microphone access and try again',
-            variant: 'destructive'
-          });
+          scheduleAutoStop();
+        } catch (error: any) {
+          if (error?.name === 'InvalidStateError') {
+            console.warn('Recognition already active; ignoring duplicate start');
+          } else {
+            console.error('Failed to start recognition:', error);
+            toast({
+              title: 'Microphone Error',
+              description: 'Please allow microphone access and try again',
+              variant: 'destructive'
+            });
+          }
         }
       }
     }
@@ -534,6 +984,79 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
       });
     }
 
+    // Detect bulk operations that need confirmation
+    const isBulkOperation = /\b(all|every|entire|whole|multiple|bulk)\b/i.test(command);
+    const isCriticalOperation = /\b(turn off all|shut down|disable all|delete|remove all)\b/i.test(command);
+    
+    if (voiceSettings.autoConfirmation && (isBulkOperation || isCriticalOperation) && !retried) {
+      // Request voice confirmation
+      console.log('🔔 Bulk/Critical operation detected, requesting confirmation');
+      setPendingAction({ command, activeToken });
+      setAwaitingConfirmation(true);
+      // Clear any existing timer and start a new auto-cancel timer
+      if (confirmationTimerRef.current) {
+        clearTimeout(confirmationTimerRef.current);
+      }
+      const timeoutMs = 15000; // default 15s
+      confirmationTimerRef.current = setTimeout(() => {
+        if (awaitingConfirmationRef.current) {
+          console.log('⏱️ Confirmation timeout reached - auto cancelling');
+          // CRITICAL: Stop listening and clear confirmation state
+          setIsListening(false);
+          setAwaitingConfirmation(false);
+          setPendingAction(null);
+          
+          // Force stop recognition
+          if (recognitionRef.current) {
+            try { 
+              recognitionRef.current.stop();
+              console.log('🛑 Recognition forcibly stopped after timeout');
+            } catch (err) {
+              console.log('Recognition stop attempted (may already be stopped)');
+            }
+          }
+          
+          speakResponse('No confirmation received. Action cancelled.');
+          toast({
+            title: '⏱️ Timeout',
+            description: 'No confirmation heard - action cancelled',
+          });
+        }
+      }, timeoutMs);
+      
+      const confirmationMessage = `This will affect multiple devices. Say yes to confirm or no to cancel.`;
+      await speakResponse(confirmationMessage);
+      
+      toast({
+        title: '⚠️ Confirmation Required',
+        description: confirmationMessage,
+        duration: 10000,
+      });
+      
+      setIsProcessing(false);
+      
+      // CRITICAL: Ensure recognition is running for confirmation
+      // Use a short delay to ensure TTS completes and recognition is ready
+      setTimeout(() => {
+        if (!isListening && recognitionRef.current && awaitingConfirmationRef.current) {
+          try {
+            console.log('🎤 Starting recognition for confirmation input');
+            recognitionRef.current.start();
+          } catch (err) {
+            if ((err as any)?.name === 'InvalidStateError') {
+              console.log('✅ Confirmation listening already active');
+            } else {
+              console.error('Failed to start listening for confirmation:', err);
+            }
+          }
+        } else {
+          console.log('🎤 Recognition already active for confirmation');
+        }
+      }, 500); // Delay to let TTS finish speaking
+      
+      return;
+    }
+
     try {
       const response = await voiceAssistantAPI.processVoiceCommand({
         command,
@@ -555,89 +1078,6 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
         response: message,
       });
 
-      // Function to speak response using native TTS or browser TTS
-      const speakResponse = async (text: string) => {
-        if (!voiceSettings.ttsEnabled) {
-          console.log('🔊 TTS disabled in settings');
-          return;
-        }
-
-        console.log('🔊 TTS Enabled, speaking response:', text);
-        console.log('🔊 TTS Settings:', {
-          rate: voiceSettings.ttsRate,
-          volume: voiceSettings.ttsVolume,
-          voice: voiceSettings.ttsVoice,
-          isNativePlatform: Capacitor.isNativePlatform()
-        });
-
-        try {
-          // Use native TTS on mobile devices or when browser TTS is unavailable
-          if (Capacitor.isNativePlatform() || !synthRef.current) {
-            console.log('🔊 Using native Capacitor TTS');
-            setIsSpeaking(true);
-            
-            await TextToSpeech.speak({
-              text: text,
-              lang: voiceSettings.language || 'en-US',
-              rate: voiceSettings.ttsRate,
-              volume: voiceSettings.ttsVolume,
-              pitch: 1.0,
-              category: 'ambient'
-            });
-            
-            console.log('🔊 Native TTS completed');
-            setIsSpeaking(false);
-          } else {
-            // Use browser TTS
-            console.log('🔊 Using browser Speech Synthesis');
-            
-            // Cancel any ongoing speech first
-            synthRef.current.cancel();
-            
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.rate = voiceSettings.ttsRate;
-            utterance.volume = voiceSettings.ttsVolume;
-            
-            // Set voice if available
-            const voices = window.speechSynthesis.getVoices();
-            console.log('🔊 Available voices:', voices.length);
-            
-            if (voices.length > 0) {
-              const selectedVoice = voices.find(v => v.name === voiceSettings.ttsVoice);
-              if (selectedVoice) {
-                utterance.voice = selectedVoice;
-                console.log('🔊 Using voice:', selectedVoice.name);
-              } else {
-                // Use default voice
-                const defaultVoice = voices.find(v => v.default) || voices[0];
-                utterance.voice = defaultVoice;
-                console.log('🔊 Using default voice:', defaultVoice.name);
-              }
-            }
-            
-            // Add event listeners for debugging and state management
-            utterance.onstart = () => {
-              console.log('🔊 Browser TTS started');
-              setIsSpeaking(true);
-            };
-            utterance.onend = () => {
-              console.log('🔊 Browser TTS ended');
-              setIsSpeaking(false);
-            };
-            utterance.onerror = (e) => {
-              console.error('🔊 Browser TTS error:', e);
-              setIsSpeaking(false);
-            };
-            
-            synthRef.current.speak(utterance);
-            console.log('🔊 Browser speech queued successfully');
-          }
-        } catch (error) {
-          console.error('🔊 TTS Error:', error);
-          setIsSpeaking(false);
-        }
-      };
-
       if (success) {
         toast({
           title: '✅ Command Executed',
@@ -645,7 +1085,12 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
         });
 
         // Speak the success response
-        speakResponse(message);
+        await speakResponse(message);
+
+        // Stop listening after successful command unless in continuous mode
+        if (!voiceSettings.continuousMode) {
+          stopListening('command-success');
+        }
 
         onCommandExecuted?.(response.data);
         setRetryCommand(null);
@@ -665,7 +1110,12 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
         });
         
         // Speak the failure message too (helpful for users)
-        speakResponse(message);
+        await speakResponse(message);
+        
+        // Stop listening after failed command unless in continuous mode
+        if (!voiceSettings.continuousMode) {
+          stopListening('command-failed');
+        }
         
         voiceSettings.addCommand({
           command,
@@ -712,9 +1162,28 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
     }
   };
 
-  if (!isSpeechSupported) {
-    return null; // Don't show if not supported
+  // Allow TTS-only usage: show mic if any TTS mechanism available even if speech recognition unsupported
+  const anyTtsPossible = (typeof androidVoiceHelper.pluginsAvailable === 'function'
+    ? androidVoiceHelper.pluginsAvailable().tts
+    : false) || !!window.speechSynthesis;
+  if (!isSpeechSupported && !anyTtsPossible) {
+    return null; // Nothing we can do
   }
+
+  // Don't show voice mic if user is not logged in to main app
+  const mainToken = localStorage.getItem('auth_token');
+  if (!mainToken) {
+    return null; // User must be logged in to use voice features
+  }
+
+  // Don't show on login, register, or landing pages
+  const publicRoutes = ['/', '/login', '/register', '/forgot-password', '/reset-password'];
+  if (publicRoutes.includes(location.pathname)) {
+    return null;
+  }
+
+  // Voice control is available to all authenticated users
+  // Backend will enforce specific voice command permissions based on role
 
   return (
     <>
@@ -918,6 +1387,14 @@ export const FloatingVoiceMic: React.FC<FloatingVoiceMicProps> = ({ onCommandExe
           </div>
         </Card>
       )}
+
+      {/* AutoVolt AI Assistant Panel - Opens on double-click */}
+      <AutoVoltAssistant
+        isOpen={showAssistantPanel}
+        onClose={() => setShowAssistantPanel(false)}
+        voiceToken={voiceToken}
+        onSpeakResponse={speakResponse}
+      />
     </>
   );
 };

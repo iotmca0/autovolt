@@ -128,6 +128,17 @@ const rolePermissionsSchema = new mongoose.Schema({
     canBulkDeleteDevices: { type: Boolean, default: false }
   },
 
+  // Voice Control Permissions
+  voiceControl: {
+    enabled: { type: Boolean, default: false },
+    canControlDevices: { type: Boolean, default: false },
+    canViewDeviceStatus: { type: Boolean, default: false },
+    canCreateSchedules: { type: Boolean, default: false },
+    canQueryAnalytics: { type: Boolean, default: false },
+    canAccessAllDevices: { type: Boolean, default: false },
+    restrictToAssignedDevices: { type: Boolean, default: true }
+  },
+
   // Department-specific restrictions
   departmentRestrictions: {
     restrictedToDepartment: { type: Boolean, default: false },
@@ -253,6 +264,11 @@ rolePermissionsSchema.methods.setDefaultPermissionsForRole = function () {
         canPerformBulkDeviceControl: true, canBulkUpdateDevices: true,
         canBulkCreateDevices: true, canBulkDeleteDevices: true
       },
+      voiceControl: {
+        enabled: true, canControlDevices: true, canViewDeviceStatus: true,
+        canCreateSchedules: true, canQueryAnalytics: true, canAccessAllDevices: true,
+        restrictToAssignedDevices: false
+      },
       apiAccess: { canAccessAPI: true, apiRateLimit: 1000 },
       notifications: {
         receiveSecurityAlerts: true, receiveSystemAlerts: true,
@@ -281,13 +297,25 @@ rolePermissionsSchema.methods.setDefaultPermissionsForRole = function () {
       ticketManagement: {
         canViewTickets: true, canCreateTickets: true, canUpdateTickets: true, canAssignTickets: true, canViewTicketStats: true
       },
+      systemManagement: {
+        canViewSettings: true, canViewSystemHealth: true, canViewSystemLogs: true, canExportData: true
+      },
       extensionManagement: {
         canRequestExtensions: true, canApproveExtensions: true, canViewExtensionRequests: true
       },
       bulkOperations: {
         canPerformBulkDeviceControl: true, canBulkUpdateDevices: true
       },
-      apiAccess: { canAccessAPI: true, apiRateLimit: 300 }
+      voiceControl: {
+        enabled: true, canControlDevices: true, canViewDeviceStatus: true,
+        canCreateSchedules: true, canQueryAnalytics: true, canAccessAllDevices: true,
+        restrictToAssignedDevices: false
+      },
+      apiAccess: { canAccessAPI: true, apiRateLimit: 300 },
+      notifications: {
+        receiveSecurityAlerts: true, receiveSystemAlerts: true,
+        receiveActivityReports: true, receiveMaintenanceAlerts: true
+      }
     },
     'admin': {
       userManagement: {
@@ -337,6 +365,11 @@ rolePermissionsSchema.methods.setDefaultPermissionsForRole = function () {
         canPerformBulkDeviceControl: true, canBulkUpdateDevices: true,
         canBulkCreateDevices: true, canBulkDeleteDevices: true
       },
+      voiceControl: {
+        enabled: true, canControlDevices: true, canViewDeviceStatus: true,
+        canCreateSchedules: true, canQueryAnalytics: true, canAccessAllDevices: true,
+        restrictToAssignedDevices: false
+      },
       apiAccess: { canAccessAPI: true, apiRateLimit: 1000 },
       notifications: {
         receiveSecurityAlerts: true, receiveSystemAlerts: true,
@@ -365,6 +398,11 @@ rolePermissionsSchema.methods.setDefaultPermissionsForRole = function () {
       extensionManagement: {
         canRequestExtensions: true, canViewExtensionRequests: true
       },
+      voiceControl: {
+        enabled: true, canControlDevices: true, canViewDeviceStatus: true,
+        canCreateSchedules: false, canQueryAnalytics: false, canAccessAllDevices: false,
+        restrictToAssignedDevices: true
+      },
       departmentRestrictions: { restrictedToDepartment: true },
       timeRestrictions: { restrictedHours: true, allowedStartTime: '08:00', allowedEndTime: '18:00' },
       apiAccess: { canAccessAPI: true, apiRateLimit: 100 }
@@ -391,6 +429,11 @@ rolePermissionsSchema.methods.setDefaultPermissionsForRole = function () {
       extensionManagement: {
         canRequestExtensions: true, canViewExtensionRequests: true
       },
+      voiceControl: {
+        enabled: true, canControlDevices: true, canViewDeviceStatus: true,
+        canCreateSchedules: false, canQueryAnalytics: false, canAccessAllDevices: false,
+        restrictToAssignedDevices: true
+      },
       departmentRestrictions: { restrictedToDepartment: true },
       timeRestrictions: { restrictedHours: true, allowedStartTime: '08:00', allowedEndTime: '18:00' },
       apiAccess: { canAccessAPI: true, apiRateLimit: 100 }
@@ -414,6 +457,11 @@ rolePermissionsSchema.methods.setDefaultPermissionsForRole = function () {
       notifications: {
         receiveSecurityAlerts: true, receiveSystemAlerts: true
       },
+      voiceControl: {
+        enabled: true, canControlDevices: true, canViewDeviceStatus: true,
+        canCreateSchedules: false, canQueryAnalytics: false, canAccessAllDevices: true,
+        restrictToAssignedDevices: false
+      },
       timeRestrictions: { restrictedHours: true, allowedStartTime: '00:00', allowedEndTime: '23:59', allowedDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] },
       apiAccess: { canAccessAPI: true, apiRateLimit: 100 }
     },
@@ -427,6 +475,11 @@ rolePermissionsSchema.methods.setDefaultPermissionsForRole = function () {
       ticketManagement: {
         canCreateTickets: true
       },
+      voiceControl: {
+        enabled: false, canControlDevices: false, canViewDeviceStatus: true,
+        canCreateSchedules: false, canQueryAnalytics: false, canAccessAllDevices: false,
+        restrictToAssignedDevices: true
+      },
       timeRestrictions: { restrictedHours: true, allowedStartTime: '08:00', allowedEndTime: '17:00', allowedDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'] },
       apiAccess: { canAccessAPI: true, apiRateLimit: 50 }
     },
@@ -439,6 +492,11 @@ rolePermissionsSchema.methods.setDefaultPermissionsForRole = function () {
       },
       ticketManagement: {
         canCreateTickets: true
+      },
+      voiceControl: {
+        enabled: false, canControlDevices: false, canViewDeviceStatus: false,
+        canCreateSchedules: false, canQueryAnalytics: false, canAccessAllDevices: false,
+        restrictToAssignedDevices: true
       },
       apiAccess: { canAccessAPI: true, apiRateLimit: 25 }
     }

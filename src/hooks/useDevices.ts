@@ -667,7 +667,7 @@ const useDevicesInternal = () => {
             (sum, d) => sum + d.switches.filter(s => s.state).length,
             0
           ),
-          totalPirSensors: devices.filter(d => d.pirEnabled).length,
+          totalPirSensors: devices.filter(d => d.pirEnabled === true).length,
           activePirSensors: devices.filter(d => d.pirSensor?.triggered).length
         };
       }

@@ -1,6 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
 
+interface VoicePermissions {
+  canControlDevices: boolean;
+  canViewDeviceStatus: boolean;
+  canCreateSchedules: boolean;
+  canQueryAnalytics: boolean;
+  canAccessAllDevices: boolean;
+  restrictToAssignedDevices: boolean;
+}
+
 interface VoiceSession {
   voiceToken: string;
   expiresIn: number;
@@ -9,6 +18,7 @@ interface VoiceSession {
     name: string;
     role: string;
   };
+  permissions?: VoicePermissions;
 }
 
 interface VoiceSessionHook {
@@ -16,6 +26,7 @@ interface VoiceSessionHook {
   isLoading: boolean;
   isAuthenticated: boolean;
   error: string | null;
+  permissions: VoicePermissions | null;
   createVoiceSession: () => Promise<VoiceSession | null>;
   refreshVoiceSession: () => void;
   clearVoiceSession: () => void;
@@ -27,26 +38,35 @@ export const useVoiceSession = (): VoiceSessionHook => {
   const [isLoading, setIsLoading] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<VoicePermissions | null>(null);
 
   const createVoiceSession = useCallback(async (): Promise<VoiceSession | null> => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const response = await api.post<{ success: boolean; data: VoiceSession }>(
-        '/voice-assistant/session/create'
-      );
+      const response = await api.post<{ 
+        success: boolean; 
+        data: VoiceSession;
+        permissions?: VoicePermissions;
+      }>('/voice-assistant/session/create');
       
       if (response.data.success) {
         const sessionData = response.data.data;
+        const voicePermissions = response.data.permissions || sessionData.permissions;
+        
         setVoiceToken(sessionData.voiceToken);
         setIsAuthenticated(true);
+        setPermissions(voicePermissions || null);
         
         // Store in sessionStorage for persistence
         sessionStorage.setItem('voiceToken', sessionData.voiceToken);
         sessionStorage.setItem('voiceTokenExpiry', 
           String(Date.now() + (sessionData.expiresIn * 1000))
         );
+        if (voicePermissions) {
+          sessionStorage.setItem('voicePermissions', JSON.stringify(voicePermissions));
+        }
         
         return sessionData;
       }
@@ -54,8 +74,16 @@ export const useVoiceSession = (): VoiceSessionHook => {
       throw new Error('Failed to create voice session');
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || 'Failed to create voice session';
+      const errorCode = err.response?.data?.code;
       setError(errorMessage);
       setIsAuthenticated(false);
+      setPermissions(null);
+      
+      // Log specific permission errors
+      if (errorCode === 'VOICE_CONTROL_DISABLED') {
+        console.warn(`⚠️ Voice control disabled for role: ${err.response?.data?.role}`);
+      }
+      
       console.error('Voice session creation error:', err);
       return null;
     } finally {
@@ -66,6 +94,7 @@ export const useVoiceSession = (): VoiceSessionHook => {
   const refreshVoiceSession = useCallback(() => {
     const stored = sessionStorage.getItem('voiceToken');
     const expiry = sessionStorage.getItem('voiceTokenExpiry');
+    const storedPermissions = sessionStorage.getItem('voicePermissions');
     
     if (stored && expiry) {
       const expiryTime = parseInt(expiry, 10);
@@ -74,6 +103,14 @@ export const useVoiceSession = (): VoiceSessionHook => {
       if (Date.now() < expiryTime) {
         setVoiceToken(stored);
         setIsAuthenticated(true);
+        
+        if (storedPermissions) {
+          try {
+            setPermissions(JSON.parse(storedPermissions));
+          } catch (e) {
+            console.error('Failed to parse voice permissions:', e);
+          }
+        }
       } else {
         // Token expired, clear it
         clearVoiceSession();
@@ -86,8 +123,10 @@ export const useVoiceSession = (): VoiceSessionHook => {
     setVoiceToken(null);
     setIsAuthenticated(false);
     setError(null);
+    setPermissions(null);
     sessionStorage.removeItem('voiceToken');
     sessionStorage.removeItem('voiceTokenExpiry');
+    sessionStorage.removeItem('voicePermissions');
   }, []);
 
   const revokeVoiceSession = useCallback(async (): Promise<boolean> => {
@@ -143,6 +182,7 @@ export const useVoiceSession = (): VoiceSessionHook => {
     isLoading,
     isAuthenticated,
     error,
+    permissions,
     createVoiceSession,
     refreshVoiceSession,
     clearVoiceSession,

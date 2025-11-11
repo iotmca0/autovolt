@@ -445,6 +445,7 @@ const login = async (req, res) => {
           ticketManagement: rolePerms.ticketManagement,
           systemManagement: rolePerms.systemManagement,
           extensionManagement: rolePerms.extensionManagement,
+          voiceControl: rolePerms.voiceControl,
           calendarIntegration: rolePerms.calendarIntegration,
           esp32Management: rolePerms.esp32Management,
           bulkOperations: rolePerms.bulkOperations,
@@ -524,6 +525,7 @@ const getProfile = async (req, res) => {
           ticketManagement: rolePerms.ticketManagement,
           systemManagement: rolePerms.systemManagement,
           extensionManagement: rolePerms.extensionManagement,
+          voiceControl: rolePerms.voiceControl,
           calendarIntegration: rolePerms.calendarIntegration,
           esp32Management: rolePerms.esp32Management,
           bulkOperations: rolePerms.bulkOperations,
@@ -1239,3 +1241,4 @@ module.exports = {
   markNotificationAsRead,
   getUnreadNotificationCount
 };
+

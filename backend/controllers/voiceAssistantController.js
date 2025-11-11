@@ -989,11 +989,11 @@ async function processVoiceCommand(command, deviceName, switchName, user) {
     let candidateDevices = allDevices;
 
     if (interpretation.roomPhrase) {
-      const roomMatches = filterDevicesByPhrase(candidateDevices, interpretation.roomPhrase, ['classroom', 'location', 'name', 'voiceAliases']);
+      const roomMatches = filterDevicesByPhrase(candidateDevices, interpretation.roomPhrase, ['classroom', 'location', 'name', 'block', 'floor', 'voiceAliases']);
       if (!roomMatches.length) {
         return {
           success: false,
-          message: `Couldn't find any devices in "${interpretation.roomPhrase}". Try the classroom name shown on the dashboard.`,
+          message: `Couldn't find any devices in "${interpretation.roomPhrase}". Try the classroom name, block, or floor shown on the dashboard.`,
           actionType: 'lookup_failed',
           context: { interpretation, ...contextNotes }
         };
@@ -1003,7 +1003,7 @@ async function processVoiceCommand(command, deviceName, switchName, user) {
 
     const explicitDevicePhrase = deviceName || interpretation.devicePhrase;
     if (explicitDevicePhrase) {
-      const deviceMatches = filterDevicesByPhrase(candidateDevices, explicitDevicePhrase, ['name', 'deviceType', 'classroom', 'location', 'voiceAliases']);
+      const deviceMatches = filterDevicesByPhrase(candidateDevices, explicitDevicePhrase, ['name', 'deviceType', 'classroom', 'location', 'block', 'floor', 'voiceAliases']);
       if (deviceMatches.length) {
         candidateDevices = deviceMatches;
       } else if (candidateDevices.length > 1 && interpretation.scope !== 'all') {
@@ -1293,14 +1293,31 @@ function filterDevicesByPhrase(devices, phrase, keys) {
   }
 
   const search = phrase.toLowerCase().trim();
+  
+  // Extract numeric values from phrase for better floor/block matching
+  const numericMatch = search.match(/\d+/);
+  const hasNumber = numericMatch !== null;
+  
   const directMatches = devices.filter((device) =>
     keys.some((key) => {
       const value = device[key];
-      if (!value) return false;
+      if (value === null || value === undefined) return false;
+      
+      // Handle array values (like voiceAliases)
       if (Array.isArray(value)) {
         return value.some((entry) => entry?.toString?.().toLowerCase().includes(search));
       }
-      return value.toString().toLowerCase().includes(search);
+      
+      const valueStr = value.toString().toLowerCase();
+      
+      // Exact match for numeric fields (floor, block numbers)
+      if (hasNumber && (key === 'floor' || key === 'block')) {
+        const deviceNumeric = value.toString();
+        return numericMatch.some(num => deviceNumeric === num);
+      }
+      
+      // Regular string matching
+      return valueStr.includes(search);
     })
   );
 
@@ -1334,6 +1351,8 @@ function buildDeviceInfo(device) {
     name: device.name,
     classroom: device.classroom,
     location: device.location,
+    block: device.block,
+    floor: device.floor,
     macAddress: device.macAddress,
     deviceType: device.deviceType
   };

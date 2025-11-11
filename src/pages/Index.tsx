@@ -87,7 +87,7 @@ const Index = () => {
             onlineDevices: devices.filter(d => d.status === 'online').length,
             totalSwitches: devices.reduce((s, d) => s + d.switches.length, 0),
             activeSwitches: devices.filter(d => d.status === 'online').reduce((s, d) => s + d.switches.filter(sw => sw.state).length, 0),
-            totalPirSensors: devices.filter(d => d.pirEnabled && d.pirGpio !== undefined && d.pirGpio !== null).length,
+            totalPirSensors: devices.filter(d => d.pirEnabled).length,
             activePirSensors: 0
           });
           setLastUpdated(new Date());
@@ -100,7 +100,7 @@ const Index = () => {
         const online = devices.filter(d => d.status === 'online');
         const totalSwitches = devices.reduce((s, d) => s + d.switches.length, 0);
         const activeSwitches = online.reduce((s, d) => s + d.switches.filter(sw => sw.state).length, 0);
-        const totalPirSensors = devices.filter(d => d.pirEnabled && d.pirGpio !== undefined && d.pirGpio !== null).length;
+        const totalPirSensors = devices.filter(d => d.pirEnabled).length;
         const activePirSensors = 0; // backend provides windowed PIR; keep 0 in fallback to avoid false positives
         setStats({
           totalDevices: devices.length,
@@ -654,6 +654,117 @@ const Index = () => {
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Switches Status Chart */}
+      <Card className="border-border/50 shadow-lg">
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <CardTitle className="text-lg md:text-xl flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10">
+                  <Zap className="h-5 w-5 text-primary" />
+                </div>
+                Switches Status Overview
+              </CardTitle>
+              <CardDescription className="text-xs md:text-sm mt-2">
+                Real-time status of all switches across the system
+              </CardDescription>
+            </div>
+            <Badge variant="outline" className="text-xs self-start md:self-auto whitespace-nowrap">
+              Live Status
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Stats Cards */}
+            <div className="space-y-4">
+              <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950 dark:to-green-900 rounded-lg border border-green-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-green-900 dark:text-green-100">Active Switches</p>
+                    <p className="text-3xl font-bold text-green-600">{stats.activeSwitches}</p>
+                  </div>
+                  <div className="p-3 bg-green-200 dark:bg-green-800 rounded-full">
+                    <Zap className="h-6 w-6 text-green-600 dark:text-green-300" />
+                  </div>
+                </div>
+                <p className="text-xs text-green-700 dark:text-green-300 mt-2">
+                  Currently turned ON
+                </p>
+              </div>
+              
+              <div className="p-4 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-950 dark:to-gray-900 rounded-lg border border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Inactive Switches</p>
+                    <p className="text-3xl font-bold text-gray-600">{stats.totalSwitches - stats.activeSwitches}</p>
+                  </div>
+                  <div className="p-3 bg-gray-200 dark:bg-gray-800 rounded-full">
+                    <Zap className="h-6 w-6 text-gray-600 dark:text-gray-300 opacity-50" />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-700 dark:text-gray-300 mt-2">
+                  Currently turned OFF
+                </p>
+              </div>
+              
+              <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 rounded-lg border border-blue-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Total Switches</p>
+                    <p className="text-3xl font-bold text-blue-600">{stats.totalSwitches}</p>
+                  </div>
+                  <div className="p-3 bg-blue-200 dark:bg-blue-800 rounded-full">
+                    <Cpu className="h-6 w-6 text-blue-600 dark:text-blue-300" />
+                  </div>
+                </div>
+                <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
+                  {((stats.activeSwitches / stats.totalSwitches) * 100 || 0).toFixed(1)}% utilization
+                </p>
+              </div>
+            </div>
+
+            {/* Bar Chart Visualization */}
+            <div className="flex items-center justify-center">
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart
+                  data={[
+                    { name: 'Active', count: stats.activeSwitches, fill: '#22c55e' },
+                    { name: 'Inactive', count: stats.totalSwitches - stats.activeSwitches, fill: '#6b7280' }
+                  ]}
+                  layout="vertical"
+                  margin={{ top: 20, right: 30, left: 80, bottom: 20 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                  <XAxis type="number" stroke="hsl(var(--foreground))" />
+                  <YAxis 
+                    dataKey="name" 
+                    type="category" 
+                    stroke="hsl(var(--foreground))"
+                    tick={{ fill: 'hsl(var(--foreground))' }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                    }}
+                    formatter={(value: any) => [`${value} switches`, 'Count']}
+                  />
+                  <Bar 
+                    dataKey="count" 
+                    fill="fill"
+                    radius={[0, 8, 8, 0]}
+                    label={{ position: 'right', fill: 'hsl(var(--foreground))' }}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

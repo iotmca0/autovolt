@@ -27,6 +27,12 @@ export interface VoiceSettings {
   showSuggestions: boolean;
   showAudioLevel: boolean;
   
+  // Advanced AI Features
+  autoConfirmation: boolean; // Auto-listen for confirmations
+  voiceResponses: boolean; // Always speak responses
+  wakeWord: string; // Wake word to activate (default: "AutoVolt")
+  assistantMode: boolean; // AI chatbot mode
+  
   // Command History
   commandHistory: VoiceCommand[];
   maxHistorySize: number;
@@ -43,6 +49,12 @@ interface VoiceSettingsStore extends VoiceSettings {
   setShowTranscript: (show: boolean) => void;
   setShowSuggestions: (show: boolean) => void;
   setShowAudioLevel: (show: boolean) => void;
+  
+  // Advanced AI Actions
+  setAutoConfirmation: (enabled: boolean) => void;
+  setVoiceResponses: (enabled: boolean) => void;
+  setWakeWord: (word: string) => void;
+  setAssistantMode: (enabled: boolean) => void;
   
   // Command History Actions
   addCommand: (command: Omit<VoiceCommand, 'id' | 'timestamp'>) => void;
@@ -63,6 +75,10 @@ const defaultSettings: VoiceSettings = {
   showTranscript: true,
   showSuggestions: true,
   showAudioLevel: true,
+  autoConfirmation: true,
+  voiceResponses: true,
+  wakeWord: 'AutoVolt',
+  assistantMode: false,
   commandHistory: [],
   maxHistorySize: 50,
 };
@@ -81,6 +97,11 @@ export const useVoiceSettings = create<VoiceSettingsStore>()(
       setShowTranscript: (show) => set({ showTranscript: show }),
       setShowSuggestions: (show) => set({ showSuggestions: show }),
       setShowAudioLevel: (show) => set({ showAudioLevel: show }),
+      
+      setAutoConfirmation: (enabled) => set({ autoConfirmation: enabled }),
+      setVoiceResponses: (enabled) => set({ voiceResponses: enabled }),
+      setWakeWord: (word) => set({ wakeWord: word }),
+      setAssistantMode: (enabled) => set({ assistantMode: enabled }),
       
       addCommand: (command) => {
         const newCommand: VoiceCommand = {

@@ -4,6 +4,8 @@ import { authAPI } from '../services/api';
 import { rolePermissionsAPI } from '../services/api';
 import socketService from '../services/socket';
 import { useToast } from '@/hooks/use-toast';
+import { notificationHelper } from '../utils/notificationHelper';
+import { Capacitor } from '@capacitor/core';
 
 interface AuthContextType {
   user: User | null;
@@ -34,45 +36,118 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const { toast } = useToast();
+  const isAndroid = Capacitor.isNativePlatform();
 
   // Check authentication status on mount
   useEffect(() => {
     checkAuthStatus();
+    
+    // Request notification permissions on Android app startup
+    if (isAndroid) {
+      notificationHelper.requestPermissions().then(granted => {
+        if (granted) {
+          console.log('[AuthProvider] Notification permissions granted');
+        } else {
+          console.warn('[AuthProvider] Notification permissions denied');
+        }
+      });
+    }
   }, []);
 
   // Set up socket event listeners once at the app level
   useEffect(() => {
     const handleUserProfileUpdated = (data: any) => {
       console.log('[AuthProvider] 📨 Received user_profile_updated event:', data);
+      
+      // Show toast notification (web + mobile)
       toast({
         title: "Profile Updated",
         description: data.message || "Your profile has been updated by an administrator.",
         duration: 5000,
       });
+      
+      // Show native notification on Android
+      if (isAndroid) {
+        notificationHelper.showProfileUpdateNotification(
+          data.message || "Your profile has been updated by an administrator."
+        );
+      }
+      
       // Refresh user data from server
       checkAuthStatus();
     };
 
     const handleUserRoleChanged = (data: any) => {
       console.log('[AuthProvider] 📨 Received user_role_changed event:', data);
+      
+      // Show toast notification (web + mobile)
       toast({
         title: "Role Changed",
         description: data.message || `Your role has been changed.`,
         variant: "destructive",
         duration: 8000,
       });
+      
+      // Show native notification on Android
+      if (isAndroid && data.newRole) {
+        notificationHelper.showRoleChangedNotification(data.newRole);
+      }
+      
       // Force a full refresh of authentication state
+      checkAuthStatus();
+    };
+
+    const handleRolePermissionsUpdated = (data: any) => {
+      console.log('[AuthProvider] 📨 Received role_permissions_updated event:', data);
+      
+      // Show toast notification (web + mobile)
+      toast({
+        title: "Permissions Updated",
+        description: data.message || `Your role permissions have been updated.`,
+        duration: 6000,
+      });
+      
+      // Show native notification on Android with details
+      if (isAndroid) {
+        notificationHelper.showPermissionUpdateNotification({
+          role: data.role || user?.role || 'your role',
+          updatedBy: data.updatedBy || 'Administrator',
+          changedPermissions: data.changedPermissions || []
+        });
+      }
+      
+      // Force a full refresh of authentication state to get new permissions
       checkAuthStatus();
     };
 
     // Register event listeners once at app level
     socketService.on('user_profile_updated', handleUserProfileUpdated);
     socketService.on('user_role_changed', handleUserRoleChanged);
+    socketService.on('role_permissions_updated', handleRolePermissionsUpdated);
+
+    // Setup notification tap handler for Android
+    if (isAndroid) {
+      notificationHelper.setupNotificationListeners((notificationData) => {
+        console.log('[AuthProvider] User tapped notification:', notificationData);
+        
+        // Handle notification tap based on type
+        if (notificationData.type === 'role_permissions_updated') {
+          // Navigate to settings or refresh
+          checkAuthStatus();
+        }
+      });
+    }
 
     return () => {
       // Cleanup event listeners on unmount
       socketService.off('user_profile_updated', handleUserProfileUpdated);
       socketService.off('user_role_changed', handleUserRoleChanged);
+      socketService.off('role_permissions_updated', handleRolePermissionsUpdated);
+      
+      // Cleanup notification listeners on Android
+      if (isAndroid) {
+        notificationHelper.removeListeners();
+      }
     };
   }, []);
 
@@ -109,6 +184,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               ...rolePermissions.scheduleManagement,
               ...rolePermissions.systemManagement,
               ...rolePermissions.extensionManagement,
+              ...rolePermissions.voiceControl, // Include voiceControl for analytics access
               // Add other permission categories as needed
             };
           }
@@ -150,6 +226,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           ...rolePermissions.scheduleManagement,
           ...rolePermissions.systemManagement,
           ...rolePermissions.extensionManagement,
+          ...rolePermissions.voiceControl, // Include voiceControl for analytics access
         };
       }
     } catch (roleError) {

@@ -154,10 +154,10 @@ const App = () => {
                   </Routes>
                 </Suspense>
                   </ErrorBoundary>
+                  {/* Global Floating Voice Button - Available on all pages */}
+                  <FloatingVoiceMic />
               </BrowserRouter>
               <GlobalLoadingOverlay />
-              {/* Global Floating Voice Button - Available on all pages */}
-              <FloatingVoiceMic />
             </TooltipProvider>
           </GlobalLoadingProvider>
         </SocketProvider>

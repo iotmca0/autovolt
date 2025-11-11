@@ -390,11 +390,11 @@ const EnergyMonitoringDashboard: React.FC = () => {
       {/* Calendar Modal Overlay */}
       {showCalendar && (
         <div 
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
           onClick={() => setShowCalendar(false)}
         >
           <div 
-            className="w-full max-w-3xl"
+            className="w-full max-w-[95vw] sm:max-w-3xl my-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {!calendarData && (
@@ -413,14 +413,14 @@ const EnergyMonitoringDashboard: React.FC = () => {
             
             {calendarData && (
               <Card>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="flex items-center gap-2 text-lg">
+                <CardHeader className="pb-3 px-3 sm:px-6">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                    <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                       <CalendarIcon className="h-4 w-4" />
                       {calendarData.month} {calendarData.year}
                     </CardTitle>
-                    <div className="flex gap-1">
-                      <Button variant="outline" size="sm" onClick={() => navigateMonth('prev')} title="Previous Month">
+                    <div className="flex gap-1 flex-wrap">
+                      <Button variant="outline" size="sm" onClick={() => navigateMonth('prev')} title="Previous Month" className="h-8 w-8 p-0 sm:h-9 sm:px-3 sm:w-auto">
                         <ChevronLeft className="h-4 w-4" />
                       </Button>
                       <Button 
@@ -428,45 +428,45 @@ const EnergyMonitoringDashboard: React.FC = () => {
                         size="sm" 
                         onClick={() => setCurrentDate(new Date())} 
                         title="Go to Current Month"
-                        className="text-xs px-2"
+                        className="text-xs px-2 h-8 sm:h-9"
                       >
                         Today
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => navigateMonth('next')} title="Next Month">
+                      <Button variant="outline" size="sm" onClick={() => navigateMonth('next')} title="Next Month" className="h-8 w-8 p-0 sm:h-9 sm:px-3 sm:w-auto">
                         <ChevronRight className="h-4 w-4" />
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => setShowCalendar(false)} title="Close Calendar">
+                      <Button variant="outline" size="sm" onClick={() => setShowCalendar(false)} title="Close Calendar" className="h-8 w-8 p-0 sm:h-9 sm:px-3 sm:w-auto">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                       </Button>
                     </div>
                   </div>
-                  <CardDescription className="text-xs">Daily energy consumption from power tracking system</CardDescription>
+                  <CardDescription className="text-xs hidden sm:block">Daily energy consumption from power tracking system</CardDescription>
                 </CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 px-3 sm:px-6">
             {/* Calendar Legend */}
-            <div className="flex flex-wrap items-center gap-3 mb-3 p-2 bg-muted rounded-lg text-xs">
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 bg-gray-300 dark:bg-gray-700 rounded"></div>
-                <span>No Data</span>
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 p-2 bg-muted rounded-lg text-[10px] sm:text-xs">
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 bg-gray-300 dark:bg-gray-700 rounded"></div>
+                <span className="text-[10px] sm:text-xs">No Data</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 bg-blue-500 rounded"></div>
-                <span>≤1 kWh</span>
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 bg-blue-500 rounded"></div>
+                <span className="text-[10px] sm:text-xs">≤1 kWh</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 bg-yellow-500 rounded"></div>
-                <span>1-2 kWh</span>
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 bg-yellow-500 rounded"></div>
+                <span className="text-[10px] sm:text-xs">1-2 kWh</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 bg-red-500 rounded"></div>
-                <span>&gt;2 kWh</span>
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 bg-red-500 rounded"></div>
+                <span className="text-[10px] sm:text-xs">&gt;2 kWh</span>
               </div>
             </div>
 
             {/* Calendar Grid */}
-            <div className="grid grid-cols-7 gap-1">
+            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                <div key={day} className="text-center text-[10px] font-semibold p-1 text-muted-foreground">
+                <div key={day} className="text-center text-[9px] sm:text-[10px] font-semibold p-0.5 sm:p-1 text-muted-foreground">
                   {day}
                 </div>
               ))}
@@ -483,17 +483,17 @@ const EnergyMonitoringDashboard: React.FC = () => {
                   className={cn(
                     "aspect-square rounded flex flex-col items-center justify-center cursor-pointer transition-all",
                     getCategoryColor(day.consumption, day.category),
-                    "text-white text-[10px] font-semibold group relative"
+                    "text-white text-[9px] sm:text-[10px] font-semibold group relative"
                   )}
                   title={`${day.consumption.toFixed(2)} kWh - ₹${day.cost.toFixed(2)}${day.consumption === 0 ? ' (No data)' : ''}`}
                 >
-                  <span className="text-[11px]">{new Date(day.date).getDate()}</span>
-                  <span className="text-[9px] opacity-75">
+                  <span className="text-[10px] sm:text-[11px]">{new Date(day.date).getDate()}</span>
+                  <span className="text-[8px] sm:text-[9px] opacity-75">
                     {day.consumption === 0 ? '-' : day.consumption.toFixed(1)}
                   </span>
                   
-                  {/* Hover tooltip */}
-                  <div className="absolute bottom-full mb-2 hidden group-hover:block bg-black text-white text-xs rounded p-2 whitespace-nowrap z-10">
+                  {/* Hover/Touch tooltip */}
+                  <div className="absolute bottom-full mb-1 sm:mb-2 hidden group-hover:block bg-black text-white text-[10px] sm:text-xs rounded p-1.5 sm:p-2 whitespace-nowrap z-10 shadow-lg">
                     <div>{day.consumption.toFixed(2)} kWh</div>
                     <div>₹{day.cost.toFixed(2)}</div>
                     <div>{formatRuntime(day.runtime)}</div>
@@ -503,14 +503,14 @@ const EnergyMonitoringDashboard: React.FC = () => {
             </div>
 
             {/* Month Summary */}
-            <div className="mt-4 grid grid-cols-2 gap-3 p-3 bg-muted rounded-lg">
+            <div className="mt-3 sm:mt-4 grid grid-cols-2 gap-2 sm:gap-3 p-2 sm:p-3 bg-muted rounded-lg">
               <div>
-                <div className="text-xs text-muted-foreground">Total Consumption</div>
-                <div className="text-xl font-bold">{calendarData.totalConsumption.toFixed(2)} kWh</div>
+                <div className="text-[10px] sm:text-xs text-muted-foreground">Total Consumption</div>
+                <div className="text-base sm:text-xl font-bold">{calendarData.totalConsumption.toFixed(2)} kWh</div>
               </div>
               <div>
-                <div className="text-xs text-muted-foreground">Total Cost</div>
-                <div className="text-xl font-bold">₹{calendarData.totalCost.toFixed(2)}</div>
+                <div className="text-[10px] sm:text-xs text-muted-foreground">Total Cost</div>
+                <div className="text-base sm:text-xl font-bold">₹{calendarData.totalCost.toFixed(2)}</div>
               </div>
             </div>
           </CardContent>

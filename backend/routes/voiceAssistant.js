@@ -3,6 +3,7 @@ const { auth, authorize } = require('../middleware/auth');
 const { logger } = require('../middleware/logger');
 const Device = require('../models/Device');
 const ActivityLog = require('../models/ActivityLog');
+const RolePermissions = require('../models/RolePermissions');
 const {
   createVoiceSession,
   voiceAuth,
@@ -29,21 +30,54 @@ router.post('/session/create', auth, async (req, res) => {
   try {
     const user = req.user;
 
-    // Check if user has voice control permissions
-    if (user.role === 'student' && !user.permissions?.voiceControl?.enabled) {
+    // Check role-based voice control permissions
+    const rolePermissions = await RolePermissions.findOne({ 
+      role: user.role, 
+      'metadata.isActive': true 
+    });
+
+    if (!rolePermissions) {
+      logger.warn(`[Voice Session] No role permissions found for role: ${user.role}`);
       return res.status(403).json({
         success: false,
-        message: 'Voice control is not enabled for your account'
+        message: 'Voice control permissions not configured for your role',
+        code: 'PERMISSIONS_NOT_CONFIGURED'
       });
     }
 
-    const sessionData = createVoiceSession(user);
+    // Check if voice control is enabled for this role
+    if (!rolePermissions.voiceControl?.enabled) {
+      logger.warn(`[Voice Session] Voice control disabled for role: ${user.role}`);
+      return res.status(403).json({
+        success: false,
+        message: 'Voice control is not enabled for your role',
+        code: 'VOICE_CONTROL_DISABLED',
+        role: user.role
+      });
+    }
 
-    logger.info('[Voice Session] Created for user:', user.name);
+    // Store voice permissions in session for later validation
+    const voicePermissions = {
+      canControlDevices: rolePermissions.voiceControl.canControlDevices,
+      canViewDeviceStatus: rolePermissions.voiceControl.canViewDeviceStatus,
+      canCreateSchedules: rolePermissions.voiceControl.canCreateSchedules,
+      canQueryAnalytics: rolePermissions.voiceControl.canQueryAnalytics,
+      canAccessAllDevices: rolePermissions.voiceControl.canAccessAllDevices,
+      restrictToAssignedDevices: rolePermissions.voiceControl.restrictToAssignedDevices
+    };
+
+    const sessionData = createVoiceSession(user, voicePermissions);
+
+    logger.info(`[Voice Session] Created for user: ${user.name} (${user.role})`, {
+      userId: user.id,
+      role: user.role,
+      permissions: voicePermissions
+    });
 
     res.json({
       success: true,
-      data: sessionData
+      data: sessionData,
+      permissions: voicePermissions
     });
   } catch (error) {
     logger.error('[Voice Session] Creation error:', error);

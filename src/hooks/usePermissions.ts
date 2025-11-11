@@ -61,6 +61,12 @@ export const usePermissions = () => {
     const canReceiveAlerts = permissions.canReceiveAlerts || hasBasicAccess;
     const canManageAnnouncements = permissions.canManageAnnouncements || hasManagementAccess;
 
+    // Analytics permissions - ONLY users with explicit canQueryAnalytics=true can see analytics
+    // This is set in backend RolePermissions.js voiceControl.canQueryAnalytics
+    // By default: super-admin, admin, and dean have this set to true
+    const canQueryAnalytics = permissions.canQueryAnalytics === true;
+    const canViewAnalytics = canQueryAnalytics; // Alias for clarity
+
     return {
         isSuperAdmin,
         isDean,
@@ -101,6 +107,8 @@ export const usePermissions = () => {
         canViewAllSchedules,
         canSendNotifications,
         canManageAnnouncements,
+        canQueryAnalytics,
+        canViewAnalytics,
         role,
         permissions,
         refreshProfile

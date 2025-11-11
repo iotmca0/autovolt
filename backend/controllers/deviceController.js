@@ -858,9 +858,10 @@ const getDeviceStats = async (req, res) => {
       const on = (Array.isArray(d.switches) ? d.switches : []).filter(sw => !!sw.state).length;
       return sum + on;
     }, 0);
-    const totalPirSensors = devices.filter(d => d.pirEnabled === true && d.pirGpio !== undefined && d.pirGpio !== null).length;
+    // Count PIR sensors: devices with pirEnabled=true (GPIO pin is optional, can be fixed at 34 for PIR, 35 for Microwave)
+    const totalPirSensors = devices.filter(d => d.pirEnabled === true).length;
     const activePirSensors = devices.filter(d => {
-      if (!(d.pirEnabled === true && d.pirGpio !== undefined && d.pirGpio !== null)) return false;
+      if (d.pirEnabled !== true) return false;
       const last = d.pirSensorLastTriggered ? new Date(d.pirSensorLastTriggered).getTime() : 0;
       const windowMs = toMs(d.pirAutoOffDelay);
       return last && (now - last) <= windowMs;

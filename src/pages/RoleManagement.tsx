@@ -27,6 +27,7 @@ interface RolePermissions {
   ticketManagement?: PermissionCategory;
   systemManagement?: PermissionCategory;
   extensionManagement?: PermissionCategory;
+  voiceControl?: PermissionCategory;
   calendarIntegration?: PermissionCategory;
   esp32Management?: PermissionCategory;
   bulkOperations?: PermissionCategory;
@@ -264,6 +265,19 @@ const RoleManagement: React.FC = () => {
                 canRequestExtensions: 'Request Extensions',
                 canApproveExtensions: 'Approve Extensions',
                 canViewExtensionRequests: 'View Extension Requests'
+            }
+        },
+        voiceControl: {
+            icon: Zap,
+            label: 'Voice Control',
+            permissions: {
+                enabled: 'Enable Voice Assistant',
+                canControlDevices: 'Control Devices via Voice',
+                canViewDeviceStatus: 'View Device Status',
+                canCreateSchedules: 'Create Schedules via Voice',
+                canQueryAnalytics: 'Query Analytics',
+                canAccessAllDevices: 'Access All Devices',
+                restrictToAssignedDevices: 'Restrict to Assigned Devices Only'
             }
         }
     };
