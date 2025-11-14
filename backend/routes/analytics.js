@@ -992,10 +992,10 @@ router.get('/device-uptime', async (req, res) => {
   }
 });
 
-// Get switch on/off statistics
+// Get switch on/off statistics - REAL-TIME TRACKING
 router.get('/switch-stats', async (req, res) => {
   try {
-    const { date, deviceId } = req.query;
+    const { date, deviceId, timeframe = 'day' } = req.query;
     
     if (!deviceId) {
       return res.status(400).json({ error: 'Device ID is required' });
@@ -1006,10 +1006,27 @@ router.get('/switch-stats', async (req, res) => {
     
     // Parse date or use today
     const targetDate = date ? new Date(date) : new Date();
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    
+    // Define time boundaries based on timeframe
+    let startTime, endTime, timeframeName;
+    const now = new Date();
+    
+    if (timeframe === 'month') {
+      // Monthly view - full month
+      startTime = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1, 0, 0, 0, 0);
+      endTime = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
+      timeframeName = startTime.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    } else {
+      // Daily view (default)
+      startTime = new Date(targetDate);
+      startTime.setHours(0, 0, 0, 0);
+      endTime = new Date(targetDate);
+      endTime.setHours(23, 59, 59, 999);
+      timeframeName = startTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    
+    // If end time is in the future, use current time
+    const analysisEnd = endTime > now ? now : endTime;
     
     // Get device
     const device = await Device.findById(deviceId);
@@ -1017,179 +1034,307 @@ router.get('/switch-stats', async (req, res) => {
       return res.status(404).json({ error: 'Device not found' });
     }
     
+    console.log(`[Switch Stats] Analyzing ${device.name} for ${timeframeName} (${startTime.toISOString()} to ${analysisEnd.toISOString()})`);
+    
     const switchStats = [];
+    
+    // All possible ON actions (including manual and scheduled)
+    const ON_ACTIONS = ['on', 'manual_on', 'bulk_on'];
+    const OFF_ACTIONS = ['off', 'manual_off', 'bulk_off'];
+    const ALL_SWITCH_ACTIONS = [...ON_ACTIONS, ...OFF_ACTIONS];
+    
+    // Format durations
+    const formatDuration = (seconds) => {
+      if (!seconds || seconds < 1) return '0s';
+      if (seconds < 60) return `${Math.floor(seconds)}s`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+      if (seconds < 86400) {
+        const hours = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        return `${hours}h ${mins}m`;
+      }
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      return `${days}d ${hours}h`;
+    };
     
     // Process each switch
     if (device.switches && device.switches.length > 0) {
       for (const switchItem of device.switches) {
-        // Get all switch toggle logs for this switch on this date
+        const switchIdStr = String(switchItem._id);
+        
+        console.log(`[Switch Stats] Processing ${switchItem.name} (ID: ${switchIdStr})`);
+        
+        // Get all switch logs for this switch in the timeframe
+        // Search by both switchId AND switchName to handle cases where device config was updated
+        // and new switch IDs were generated (old logs have old IDs but same names)
         const switchLogs = await ActivityLog.find({
           deviceId: device._id,
-          action: { $in: ['on', 'off'] }, // Actions are 'on'/'off', not 'switch_on'/'switch_off'
-          switchId: switchItem._id, // Switch logs use switchId field, not details.switchId
-          timestamp: { $gte: startOfDay, $lte: endOfDay }
+          $or: [
+            { switchId: switchItem._id },
+            { switchId: switchIdStr },
+            { switchName: switchItem.name }
+          ],
+          action: { $in: ALL_SWITCH_ACTIONS },
+          timestamp: { $gte: startTime, $lte: analysisEnd }
         }).sort({ timestamp: 1 }).lean();
+        
+        console.log(`[Switch Stats] Found ${switchLogs.length} logs for ${switchItem.name} in timeframe`);
+        
+        // Get the most recent log BEFORE the timeframe to determine initial state
+        const logBeforeTimeframe = await ActivityLog.findOne({
+          deviceId: device._id,
+          $or: [
+            { switchId: switchItem._id },
+            { switchId: switchIdStr },
+            { switchName: switchItem.name }
+          ],
+          action: { $in: ALL_SWITCH_ACTIONS },
+          timestamp: { $lt: startTime }
+        }).sort({ timestamp: -1 }).lean();
+        
+        // Determine initial state at start of timeframe
+        let currentState;
+        if (logBeforeTimeframe) {
+          currentState = ON_ACTIONS.includes(logBeforeTimeframe.action);
+          console.log(`[Switch Stats] ${switchItem.name} state at start: ${currentState ? 'ON' : 'OFF'} (from log ${logBeforeTimeframe.action} at ${new Date(logBeforeTimeframe.timestamp).toISOString()})`);
+        } else {
+          // No previous logs, assume OFF
+          currentState = false;
+          console.log(`[Switch Stats] ${switchItem.name} no previous logs, assuming OFF at start`);
+        }
         
         let onDuration = 0;
         let offDuration = 0;
         let toggleCount = switchLogs.length;
-        let lastState = switchItem.state ? 'on' : 'off';
-        let currentState = switchItem.state ? 'on' : 'off'; // Current state
-        let lastTimestamp = startOfDay;
         let lastOnAt = null;
         let lastOffAt = null;
-        let lastStateChangeAt = null; // When did current state start
+        let lastStateChangeAt = null;
+        let lastTimestamp = startTime;
         
-        // ALWAYS find the most recent switch log (from any time, not just today)
-        // This ensures we have accurate "when did current state start" information
-        const mostRecentLog = await ActivityLog.findOne({
-          deviceId: device._id,
-          action: { $in: ['on', 'off'] }, // Actions are 'on'/'off', not 'switch_on'/'switch_off'
-          switchId: switchItem._id // Switch logs use switchId field, not details.switchId
-        }).sort({ timestamp: -1 }).limit(1).lean();
-        
-        // If no logs exist FOR TODAY, calculate based on current switch state
-        if (switchLogs.length === 0) {
-          const now = new Date();
-          const currentTime = now; // Use actual current time for continuous tracking
+        // Process each log event
+        for (const log of switchLogs) {
+          const logTime = new Date(log.timestamp);
+          const duration = (logTime - lastTimestamp) / 1000;
           
-          // Determine when current state started
-          let stateStartTime = startOfDay;
+          // Add duration in current state
+          if (currentState) {
+            onDuration += duration;
+          } else {
+            offDuration += duration;
+          }
+          
+          // Update state based on action
+          const newState = ON_ACTIONS.includes(log.action);
+          
+          if (newState) {
+            lastOnAt = log.timestamp;
+          } else {
+            lastOffAt = log.timestamp;
+          }
+          
+          currentState = newState;
+          lastTimestamp = logTime;
+        }
+        
+        // Add remaining duration from last log/state change to current time
+        const remainingDuration = (analysisEnd - lastTimestamp) / 1000;
+        if (currentState) {
+          onDuration += remainingDuration;
+        } else {
+          offDuration += remainingDuration;
+        }
+        
+        // Get current ACTUAL state from device (most accurate)
+        const deviceCurrentState = switchItem.state;
+        
+        // PRIORITY 1: Use switch's lastStateChange field (most reliable - updated on every state change)
+        let currentStateSinceTime;
+        
+        if (switchItem.lastStateChange) {
+          currentStateSinceTime = new Date(switchItem.lastStateChange);
+          lastStateChangeAt = switchItem.lastStateChange;
+          
+          // Update lastOnAt/lastOffAt based on device state
+          if (deviceCurrentState) {
+            lastOnAt = switchItem.lastStateChange;
+          } else {
+            lastOffAt = switchItem.lastStateChange;
+          }
+          
+          console.log(`[Switch Stats] ${switchItem.name} - Using switch.lastStateChange: ${switchItem.lastStateChange} (${deviceCurrentState ? 'ON' : 'OFF'})`);
+        } else {
+          // PRIORITY 2: Try to find the most recent activity log that matches current state
+          console.log(`[Switch Stats] ${switchItem.name} - No lastStateChange field, checking activity logs`);
+          
+          const mostRecentLog = await ActivityLog.findOne({
+            deviceId: device._id,
+            $or: [
+              { switchId: switchItem._id },
+              { switchId: switchIdStr }
+            ],
+            action: { $in: ALL_SWITCH_ACTIONS },
+            timestamp: { $lte: now }
+          }).sort({ timestamp: -1 }).lean();
           
           if (mostRecentLog) {
-            const mostRecentLogDate = new Date(mostRecentLog.timestamp);
-            const mostRecentLogAction = mostRecentLog.action;
+            const mostRecentState = ON_ACTIONS.includes(mostRecentLog.action);
             
-            // Check if most recent log matches current state
-            const logStateIsOn = mostRecentLogAction === 'on'; // Action is 'on', not 'switch_on'
-            const currentStateIsOn = switchItem.state;
-            
-            if (logStateIsOn === currentStateIsOn) {
-              // Most recent log matches current state - use it as start time
-              stateStartTime = mostRecentLogDate;
+            // Check if log matches current state
+            if (mostRecentState === deviceCurrentState) {
+              currentStateSinceTime = new Date(mostRecentLog.timestamp);
+              lastStateChangeAt = mostRecentLog.timestamp;
               
-              if (currentStateIsOn) {
+              if (deviceCurrentState) {
                 lastOnAt = mostRecentLog.timestamp;
               } else {
                 lastOffAt = mostRecentLog.timestamp;
               }
+              
+              console.log(`[Switch Stats] ${switchItem.name} - Using activity log: ${mostRecentLog.timestamp} (${deviceCurrentState ? 'ON' : 'OFF'})`);
             } else {
-              // State changed since last log, but no log recorded
-              // This shouldn't happen, but fall back to startOfDay
-              stateStartTime = startOfDay;
-            }
-          }
-          
-          // Calculate duration from when state actually started
-          const stateDuration = (currentTime - stateStartTime) / 1000;
-          
-          if (switchItem.state) {
-            // Switch is currently ON
-            onDuration = stateDuration;
-            if (!lastOnAt) lastOnAt = stateStartTime.toISOString();
-            lastStateChangeAt = stateStartTime.toISOString();
-            
-            // If state started before today, add offline time from midnight to start of day
-            if (stateStartTime < startOfDay) {
-              // Was already ON at midnight, so today's ON time is from midnight to now
-              onDuration = (currentTime - startOfDay) / 1000;
-              lastStateChangeAt = startOfDay.toISOString(); // Show as "since midnight"
+              // Log state doesn't match - find a matching log
+              console.log(`[Switch Stats] WARNING: ${switchItem.name} - Most recent log state (${mostRecentState ? 'ON' : 'OFF'}) differs from device (${deviceCurrentState ? 'ON' : 'OFF'})`);
+              
+              const currentStateActions = deviceCurrentState ? ON_ACTIONS : OFF_ACTIONS;
+              const matchingStateLog = await ActivityLog.findOne({
+                deviceId: device._id,
+                $or: [
+                  { switchId: switchItem._id },
+                  { switchId: switchIdStr }
+                ],
+                action: { $in: currentStateActions },
+                timestamp: { $lte: now }
+              }).sort({ timestamp: -1 }).lean();
+              
+              if (matchingStateLog) {
+                currentStateSinceTime = new Date(matchingStateLog.timestamp);
+                lastStateChangeAt = matchingStateLog.timestamp;
+                
+                if (deviceCurrentState) {
+                  lastOnAt = matchingStateLog.timestamp;
+                } else {
+                  lastOffAt = matchingStateLog.timestamp;
+                }
+                
+                console.log(`[Switch Stats] ${switchItem.name} - Found matching log: ${matchingStateLog.timestamp}`);
+              } else {
+                // PRIORITY 3: Use device lastSeen as last resort
+                if (device.lastSeen) {
+                  currentStateSinceTime = new Date(device.lastSeen);
+                  lastStateChangeAt = device.lastSeen.toISOString();
+                  console.log(`[Switch Stats] ${switchItem.name} - Using device.lastSeen: ${device.lastSeen}`);
+                } else {
+                  // PRIORITY 4: Use timeframe start (least reliable)
+                  currentStateSinceTime = startTime;
+                  lastStateChangeAt = startTime.toISOString();
+                  console.log(`[Switch Stats] ${switchItem.name} - Using timeframe start (no other data available)`);
+                }
+                
+                if (deviceCurrentState) {
+                  lastOnAt = lastStateChangeAt;
+                } else {
+                  lastOffAt = lastStateChangeAt;
+                }
+              }
             }
           } else {
-            // Switch is currently OFF
-            offDuration = stateDuration;
-            if (!lastOffAt) lastOffAt = stateStartTime.toISOString();
-            lastStateChangeAt = stateStartTime.toISOString();
+            // No activity logs found at all
+            console.log(`[Switch Stats] ${switchItem.name} - No activity logs found`);
             
-            // If state started before today, add offline time from midnight to start of day
-            if (stateStartTime < startOfDay) {
-              // Was already OFF at midnight, so today's OFF time is from midnight to now
-              offDuration = (currentTime - startOfDay) / 1000;
-              lastStateChangeAt = startOfDay.toISOString(); // Show as "since midnight"
-            }
-          }
-        } else {
-          // Process each toggle
-          switchLogs.forEach(log => {
-            const duration = (new Date(log.timestamp) - lastTimestamp) / 1000; // in seconds
-            
-            if (lastState === 'on') {
-              onDuration += duration;
+            // PRIORITY 3: Use device lastSeen
+            if (device.lastSeen) {
+              currentStateSinceTime = new Date(device.lastSeen);
+              lastStateChangeAt = device.lastSeen.toISOString();
+              console.log(`[Switch Stats] ${switchItem.name} - Using device.lastSeen: ${device.lastSeen}`);
             } else {
-              offDuration += duration;
+              // PRIORITY 4: Use timeframe start
+              currentStateSinceTime = startTime;
+              lastStateChangeAt = startTime.toISOString();
+              console.log(`[Switch Stats] ${switchItem.name} - Using timeframe start (no data available)`);
             }
             
-            // Update state (actions are 'on'/'off', not 'switch_on'/'switch_off')
-            if (log.action === 'on') {
-              lastState = 'on';
-              lastOnAt = log.timestamp;
+            if (deviceCurrentState) {
+              lastOnAt = lastStateChangeAt;
             } else {
-              lastState = 'off';
-              lastOffAt = log.timestamp;
+              lastOffAt = lastStateChangeAt;
             }
-            
-            lastTimestamp = new Date(log.timestamp);
-          });
-          
-          // Add duration from last log to current time
-          const now = new Date();
-          const currentTime = now; // Use actual current time for continuous tracking
-          const remainingDuration = (currentTime - lastTimestamp) / 1000;
-          
-          if (lastState === 'on') {
-            onDuration += remainingDuration;
-            lastStateChangeAt = lastOnAt; // When switch turned ON last time
-          } else {
-            offDuration += remainingDuration;
-            lastStateChangeAt = lastOffAt; // When switch turned OFF last time
           }
         }
         
-        // Format durations
-        const formatDuration = (seconds) => {
-          if (seconds < 60) return `${Math.floor(seconds)}s`;
-          if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
-          if (seconds < 86400) {
-            const hours = Math.floor(seconds / 3600);
-            const mins = Math.floor((seconds % 3600) / 60);
-            return `${hours}h ${mins}m`;
+        // Calculate current state duration (how long switch has been in CURRENT state only)
+        // IMPORTANT: Always use lastStateChangeAt (the MOST reliable timestamp) for duration calculation
+        let finalCurrentStateDurationSeconds;
+        
+        if (lastStateChangeAt) {
+          // Use the last state change timestamp we determined above
+          const stateChangeTime = new Date(lastStateChangeAt);
+          finalCurrentStateDurationSeconds = Math.max(0, Math.floor((now - stateChangeTime) / 1000));
+        } else if (currentStateSinceTime) {
+          // Fallback to currentStateSinceTime
+          finalCurrentStateDurationSeconds = Math.max(0, Math.floor((now - currentStateSinceTime) / 1000));
+        } else {
+          // Last resort - calculate from device's lastStateChange field or 0
+          if (switchItem.lastStateChange) {
+            const lastChange = new Date(switchItem.lastStateChange);
+            finalCurrentStateDurationSeconds = Math.max(0, Math.floor((now - lastChange) / 1000));
+          } else {
+            // No reliable data - show 0
+            finalCurrentStateDurationSeconds = 0;
           }
-          const days = Math.floor(seconds / 86400);
-          const hours = Math.floor((seconds % 86400) / 3600);
-          return `${days}d ${hours}h`;
-        };
+        }
+        
+        console.log(`[Switch Stats] ${switchItem.name} final:`);
+        console.log(`  - ON time in timeframe: ${formatDuration(onDuration)}`);
+        console.log(`  - OFF time in timeframe: ${formatDuration(offDuration)}`);
+        console.log(`  - Toggle count: ${toggleCount}`);
+        console.log(`  - Current state: ${deviceCurrentState ? 'ON' : 'OFF'}`);
+        console.log(`  - Last state change: ${lastStateChangeAt}`);
+        console.log(`  - Current state duration: ${formatDuration(finalCurrentStateDurationSeconds)} (${finalCurrentStateDurationSeconds}s)`);
+        if (lastOnAt) console.log(`  - Last turned ON: ${new Date(lastOnAt).toISOString()}`);
+        if (lastOffAt) console.log(`  - Last turned OFF: ${new Date(lastOffAt).toISOString()}`);
         
         switchStats.push({
           switchId: switchItem.id,
           switchName: switchItem.name,
-          onDuration: Math.floor(onDuration),
-          offDuration: Math.floor(offDuration),
+          switchType: switchItem.type || 'unknown',
+          onDuration: Math.max(0, Math.floor(onDuration)),
+          offDuration: Math.max(0, Math.floor(offDuration)),
           toggleCount,
-          lastOnAt: lastOnAt || 'N/A',
-          lastOffAt: lastOffAt || 'N/A',
-          lastStateChangeAt: lastStateChangeAt || 'N/A', // When current state started
+          lastOnAt: lastOnAt || null,
+          lastOffAt: lastOffAt || null,
+          lastStateChangeAt: lastStateChangeAt || null,
           totalOnTime: formatDuration(onDuration),
           totalOffTime: formatDuration(offDuration),
-          currentState: switchItem.state, // true = ON, false = OFF
-          currentStateDuration: formatDuration(switchItem.state ? onDuration : offDuration) // Duration in current state
+          currentState: deviceCurrentState,
+          currentStateDuration: formatDuration(finalCurrentStateDurationSeconds),
+          currentStateDurationSeconds: finalCurrentStateDurationSeconds,
+          timeframe: timeframe,
+          timeframeName: timeframeName
         });
       }
     }
     
     // Add device status and last seen information
     const deviceStatus = {
-      status: device.status, // 'online' or 'offline'
+      status: device.status,
       lastSeen: device.lastSeen,
-      name: device.name
+      name: device.name,
+      classroom: device.classroom,
+      location: device.location
     };
     
     res.json({ 
       switchStats,
-      deviceStatus // Include device status so frontend can show warning if offline
+      deviceStatus,
+      timeframe,
+      timeframeName,
+      startTime: startTime.toISOString(),
+      endTime: analysisEnd.toISOString()
     });
   } catch (error) {
-    console.error('Error getting switch stats:', error);
-    res.status(500).json({ error: 'Failed to get switch statistics' });
+    console.error('[Switch Stats] Error:', error);
+    res.status(500).json({ error: 'Failed to get switch statistics', message: error.message });
   }
 });
 

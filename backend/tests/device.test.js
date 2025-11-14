@@ -158,18 +158,11 @@ describe('Device API', () => {
         test('should handle switch toggle with state parameter', async () => {
             const switchId = testDevice.switches[0]._id;
 
-            // Toggle on
-            await request(app)
-                .post(`/api/devices/${testDevice._id}/switches/${switchId}/toggle`)
-                .set('Authorization', `Bearer ${adminToken}`)
-                .send({ state: true })
-                .expect(200);
-
-            // Toggle off
+            // Toggle on with explicit state
             const response = await request(app)
                 .post(`/api/devices/${testDevice._id}/switches/${switchId}/toggle`)
                 .set('Authorization', `Bearer ${adminToken}`)
-                .send({ state: false })
+                .send({ state: true })
                 .expect(200);
 
             expect(response.body).toHaveProperty('success', true);

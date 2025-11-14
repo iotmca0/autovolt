@@ -28,6 +28,14 @@ jest.mock('../scripts/secure-config', () => ({
   }))
 }));
 
+// Mock express-rate-limit to disable rate limiting in tests
+jest.mock('express-rate-limit', () => {
+  return jest.fn(() => (req, res, next) => {
+    // Skip rate limiting in tests
+    next();
+  });
+});
+
 // Store server references for cleanup
 global.testServers = [];
 

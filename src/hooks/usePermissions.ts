@@ -61,11 +61,22 @@ export const usePermissions = () => {
     const canReceiveAlerts = permissions.canReceiveAlerts || hasBasicAccess;
     const canManageAnnouncements = permissions.canManageAnnouncements || hasManagementAccess;
 
-    // Analytics permissions - ONLY users with explicit canQueryAnalytics=true can see analytics
-    // This is set in backend RolePermissions.js voiceControl.canQueryAnalytics
-    // By default: super-admin, admin, and dean have this set to true
+    // Analytics permissions
+    // Primary flag provided by backend (from RolePermissions.voiceControl.canQueryAnalytics)
     const canQueryAnalytics = permissions.canQueryAnalytics === true;
-    const canViewAnalytics = canQueryAnalytics; // Alias for clarity
+
+    // More permissive UI flag to show Analytics menus for operational roles too.
+    // Backend routes still enforce their own authorization; this only controls visibility.
+    const canViewAnalytics = Boolean(
+        canQueryAnalytics ||
+        permissions.canViewSystemHealth ||
+        permissions.canViewReports ||
+        permissions.canViewSecurityMetrics ||
+        hasAdminAccess ||
+        isDean ||
+        isFaculty ||
+        isTeacher
+    );
 
     return {
         isSuperAdmin,

@@ -41,7 +41,7 @@ const apiLimiter = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => process.env.NODE_ENV === 'development', // Skip rate limiting in development
+    skip: (req) => process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test', // Skip rate limiting in development and test
     handler: (req, res) => {
         logRateLimitHit(req, res);
         res.status(429).json({

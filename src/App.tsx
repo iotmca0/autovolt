@@ -21,7 +21,7 @@ import { FloatingVoiceMic } from '@/components/FloatingVoiceMic';
 
 // Lazy load components for better performance
 const Index = lazy(() => import("./pages/Index"));
-const Landing = lazy(() => import("./pages/Landing"));
+// const Landing = lazy(() => import("./pages/Landing"));
 const Devices = lazy(() => import("./pages/Devices"));
 const Switches = lazy(() => import("./pages/Switches"));
 const Master = lazy(() => import("./pages/Master"));
@@ -106,8 +106,8 @@ const App = () => {
                       {/* Root redirect - smart routing based on auth */}
                       <Route index element={<RootRedirect />} />
                     
-                    {/* Public Landing Page */}
-                    <Route path="/landing" element={<Landing />} />
+                    {/* Public Landing Page - REMOVED */}
+                    {/* <Route path="/landing" element={<Landing />} /> */}
                     
                     {/* Auth Routes */}
                     <Route path="/register" element={<Register />} />

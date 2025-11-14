@@ -948,6 +948,8 @@ const ticketRoutes = require('./routes/tickets');
 const devicePermissionRoutes = require('./routes/devicePermissions');
 const deviceCategoryRoutes = require('./routes/deviceCategories');
 const classExtensionRoutes = require('./routes/classExtensions');
+const aiRoutes = require('./routes/aiRoutes'); // Import AI routes
+const rolePermissionsRoutes = require('./routes/rolePermissions'); // Role permissions routes
 
 // Voice Assistant Integration
 const voiceAssistantRoutes = require('./routes/voiceAssistant');
@@ -959,6 +961,7 @@ const { auth, authorize } = require('./middleware/auth');
 
 // Import services (only those actively used)
 const scheduleService = require('./services/scheduleService');
+const { synchronizeEntities } = require('./services/aiService'); // Import AI service function
 // const contentSchedulerService = require('./services/contentScheduler'); // DISABLED - board functionality removed
 const deviceMonitoringService = require('./services/deviceMonitoringService');
 const EnhancedLoggingService = require('./services/enhancedLoggingService');
@@ -1017,6 +1020,14 @@ const connectDB = async (retries = 5) => {
       logger.error('Schedule service initialization error:', scheduleError);
     }
     
+    // Synchronize entities with the AI service at startup
+    try {
+      logger.info('[AI] Synchronizing entities with AI service...');
+      await synchronizeEntities();
+    } catch (aiSyncError) {
+      logger.error('AI entity synchronization error:', aiSyncError);
+    }
+
     // Initialize metrics service after DB connection
     logger.info('[DEBUG] About to initialize metrics service...');
     try {
@@ -1558,14 +1569,12 @@ apiRouter.use('/aiml', apiLimiter, aimlRoutes);
 apiRouter.use('/settings', apiLimiter, settingsRoutes);
 apiRouter.use('/tickets', apiLimiter, ticketRoutes);
 apiRouter.use('/device-permissions', apiLimiter, devicePermissionRoutes);
+apiRouter.use('/role-permissions', apiLimiter, rolePermissionsRoutes);
 apiRouter.use('/telegram', require('./routes/telegram'));
 apiRouter.use('/device-categories', apiLimiter, deviceCategoryRoutes);
 apiRouter.use('/class-extensions', apiLimiter, classExtensionRoutes);
-apiRouter.use('/voice-assistant', voiceAssistantRoutes);
-apiRouter.use('/role-permissions', apiLimiter, require('./routes/rolePermissions'));
-apiRouter.use('/power-analytics', apiLimiter, require('./routes/powerAnalytics'));
-apiRouter.use('/power-settings', apiLimiter, require('./routes/powerSettings'));
-apiRouter.use('/device-analytics', apiLimiter, require('./routes/deviceAnalytics'));
+apiRouter.use('/ai', apiLimiter, aiRoutes); // Mount AI routes
+apiRouter.use('/voice-assistant', apiLimiter, voiceAssistantRoutes); // Mount voice assistant routes
 // apiRouter.use('/energy-consumption', apiLimiter, require('./routes/energyConsumption')); // DISABLED - Old power system, use /power-analytics instead
 // apiRouter.use('/notices', apiLimiter, require('./routes/notices')); // DISABLED - notice board functionality removed
 // apiRouter.use('/content', apiLimiter, require('./routes/contentScheduler')); // DISABLED - board functionality removed

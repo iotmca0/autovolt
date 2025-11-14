@@ -1,5 +1,5 @@
 import React from 'react';
-import AIMLPanel from '../components/AIMLPanel';
+import AIMLPanel from '../components/AIMLPanelRedesigned';
 
 
 const AIMLPage: React.FC = () => {

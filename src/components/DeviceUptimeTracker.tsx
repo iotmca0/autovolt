@@ -42,16 +42,20 @@ interface UptimeStats {
 interface SwitchStats {
   switchId: number;
   switchName: string;
+  switchType?: string;
   onDuration: number; // in seconds
   offDuration: number;
   toggleCount: number;
-  lastOnAt: string;
-  lastOffAt: string;
-  lastStateChangeAt: string; // When current state started
+  lastOnAt: string | null;
+  lastOffAt: string | null;
+  lastStateChangeAt: string | null; // When current state started
   totalOnTime: string;
   totalOffTime: string;
   currentState: boolean; // true = ON, false = OFF
   currentStateDuration: string; // Duration in current state
+  currentStateDurationSeconds?: number;
+  timeframe?: string;
+  timeframeName?: string;
 }
 
 interface DeviceStatus {
@@ -63,10 +67,12 @@ interface DeviceStatus {
 export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedDevice, setSelectedDevice] = useState<string>('all');
+  const [timeframe, setTimeframe] = useState<'day' | 'month'>('day');
   const [uptimeStats, setUptimeStats] = useState<UptimeStats[]>([]);
   const [switchStats, setSwitchStats] = useState<SwitchStats[]>([]);
   const [deviceStatus, setDeviceStatus] = useState<DeviceStatus | null>(null);
   const [loading, setLoading] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
 
   // Format duration in seconds to human-readable format
   const formatDuration = (seconds: number): string => {
@@ -142,7 +148,8 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
       const response = await apiService.get(`/analytics/switch-stats`, {
         params: {
           date: selectedDate,
-          deviceId: selectedDevice
+          deviceId: selectedDevice,
+          timeframe: timeframe
         }
       });
       setSwitchStats(response.data.switchStats || []);
@@ -165,7 +172,19 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
         setSwitchStats([]);
       }
     }
-  }, [selectedDate, selectedDevice]);
+  }, [selectedDate, selectedDevice, timeframe]);
+
+  // Auto-refresh every 30 seconds when enabled
+  useEffect(() => {
+    if (!autoRefresh || selectedDevice === 'all') return;
+
+    const interval = setInterval(() => {
+      console.log('[Auto-refresh] Updating switch stats...');
+      fetchSwitchStats();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [autoRefresh, selectedDevice, selectedDate, timeframe]);
 
   return (
     <div className="space-y-6">
@@ -183,13 +202,30 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
               </CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Select value={timeframe} onValueChange={(value: 'day' | 'month') => setTimeframe(value)}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="day">Daily</SelectItem>
+                  <SelectItem value="month">Monthly</SelectItem>
+                </SelectContent>
+              </Select>
               <div className="flex items-center gap-2">
                 <CalendarIcon className="h-4 w-4 text-muted-foreground" />
                 <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  max={new Date().toISOString().split('T')[0]}
+                  type={timeframe === 'month' ? 'month' : 'date'}
+                  value={timeframe === 'month' ? selectedDate.substring(0, 7) : selectedDate}
+                  onChange={(e) => {
+                    if (timeframe === 'month') {
+                      setSelectedDate(e.target.value + '-01');
+                    } else {
+                      setSelectedDate(e.target.value);
+                    }
+                  }}
+                  max={timeframe === 'month' 
+                    ? new Date().toISOString().substring(0, 7)
+                    : new Date().toISOString().split('T')[0]}
                   className="px-3 py-2 border rounded-md text-sm"
                 />
               </div>
@@ -206,6 +242,17 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                   ))}
                 </SelectContent>
               </Select>
+              {selectedDevice !== 'all' && (
+                <Button
+                  variant={autoRefresh ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setAutoRefresh(!autoRefresh)}
+                  className="flex items-center gap-2"
+                >
+                  <Clock className="h-4 w-4" />
+                  {autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF'}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -356,9 +403,18 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
             <CardTitle className="flex items-center gap-2">
               <ToggleLeft className="h-5 w-5 text-blue-500" />
               Switch On/Off Statistics
+              {autoRefresh && selectedDevice !== 'all' && (
+                <Badge variant="outline" className="ml-2 animate-pulse">
+                  <Clock className="h-3 w-3 mr-1" />
+                  Live
+                </Badge>
+              )}
             </CardTitle>
             <CardDescription>
-              Detailed switch activity for {devices.find(d => d.id === selectedDevice)?.name || 'selected device'} on {new Date(selectedDate).toLocaleDateString()}
+              {timeframe === 'month' 
+                ? `Monthly statistics for ${devices.find(d => d.id === selectedDevice)?.name || 'selected device'} - ${new Date(selectedDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+                : `Daily statistics for ${devices.find(d => d.id === selectedDevice)?.name || 'selected device'} - ${new Date(selectedDate).toLocaleDateString()}`
+              }
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -401,8 +457,10 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                   const isDeviceOffline = deviceStatus && deviceStatus.status === 'offline';
                   const statusColor = isOn ? 'blue' : 'gray';
                   const statusText = isOn ? 'ON' : 'OFF';
-                  const currentDuration = isOn ? stat.totalOnTime : stat.totalOffTime;
-                  const lastChangeTime = isOn ? stat.lastOnAt : stat.lastOffAt;
+                  // Current state duration - how long switch has been in CURRENT state (ON or OFF)
+                  const currentDuration = stat.currentStateDuration || '0s';
+                  // When did the CURRENT state start (most recent state change)
+                  const lastChangeTime = stat.lastStateChangeAt;
                   
                   return (
                     <div key={stat.switchId} className={`p-4 border-2 rounded-lg space-y-3 ${
@@ -415,7 +473,12 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                       {/* Header with Switch Name and Current Status */}
                       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                         <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <h4 className="font-semibold text-lg truncate" title={stat.switchName}>{stat.switchName}</h4>
+                          <div className="flex flex-col">
+                            <h4 className="font-semibold text-lg truncate" title={stat.switchName}>{stat.switchName}</h4>
+                            {stat.switchType && (
+                              <span className="text-xs text-muted-foreground capitalize">{stat.switchType}</span>
+                            )}
+                          </div>
                           <Badge 
                             variant={isOn ? "default" : "secondary"}
                             className={`flex-shrink-0 ${
@@ -426,12 +489,13 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                                   : 'bg-gray-500 text-white'
                             }`}
                           >
-                            {isDeviceOffline ? `⚠️ Last: ${statusText}` : `Currently ${statusText}`}
+                            {isDeviceOffline ? `⚠️ Last: ${statusText}` : `● ${statusText}`}
                           </Badge>
                         </div>
                         {stat.toggleCount > 0 && (
                           <Badge variant="outline" className="font-normal flex-shrink-0 whitespace-nowrap">
-                            Toggled {stat.toggleCount} time{stat.toggleCount !== 1 ? 's' : ''} today
+                            <ToggleRight className="h-3 w-3 mr-1" />
+                            {stat.toggleCount} toggle{stat.toggleCount !== 1 ? 's' : ''} {timeframe === 'month' ? 'this month' : 'today'}
                           </Badge>
                         )}
                       </div>
@@ -474,15 +538,21 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                         </div>
                       </div>
 
-                      {/* Today's Summary - Compact Stats */}
+                      {/* Summary Stats */}
                       <div className="grid grid-cols-2 gap-3">
                         <div className="p-3 bg-white dark:bg-gray-800 border rounded-lg">
-                          <div className="text-xs text-muted-foreground mb-1">Total ON Time Today</div>
+                          <div className="text-xs text-muted-foreground mb-1">Total ON Time {timeframe === 'month' ? 'This Month' : 'Today'}</div>
                           <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">{stat.totalOnTime}</div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {stat.onDuration > 0 ? `${Math.floor(stat.onDuration)} seconds` : 'No activity'}
+                          </div>
                         </div>
                         <div className="p-3 bg-white dark:bg-gray-800 border rounded-lg">
-                          <div className="text-xs text-muted-foreground mb-1">Total OFF Time Today</div>
+                          <div className="text-xs text-muted-foreground mb-1">Total OFF Time {timeframe === 'month' ? 'This Month' : 'Today'}</div>
                           <div className="text-lg font-semibold text-gray-600 dark:text-gray-400">{stat.totalOffTime}</div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {stat.offDuration > 0 ? `${Math.floor(stat.offDuration)} seconds` : 'No activity'}
+                          </div>
                         </div>
                       </div>
 
@@ -505,6 +575,29 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                                 : 0}%`
                             }}
                           />
+                        </div>
+                      </div>
+
+                      {/* Recent Activity Summary */}
+                      <div className="pt-2 border-t">
+                        <div className="text-xs font-semibold text-muted-foreground mb-2">Recent Activity</div>
+                        <div className="space-y-1 text-xs">
+                          {stat.lastOnAt && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-muted-foreground">Last turned ON:</span>
+                              <span className="font-medium text-blue-600 dark:text-blue-400">
+                                {formatTimestamp(stat.lastOnAt)} ({getTimeSince(stat.lastOnAt)})
+                              </span>
+                            </div>
+                          )}
+                          {stat.lastOffAt && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-muted-foreground">Last turned OFF:</span>
+                              <span className="font-medium text-gray-600 dark:text-gray-400">
+                                {formatTimestamp(stat.lastOffAt)} ({getTimeSince(stat.lastOffAt)})
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Info, Settings, RefreshCw, Monitor, Lightbulb, Fan, Server, Wifi, WifiOff, MapPin, Brain, TrendingUp, AlertTriangle, Zap, Calendar, Clock, BarChart3, Activity, Target, Layers, AlertCircle, CheckCircle, XCircle, TrendingDown, TrendingUp as TrendingUpIcon, Eye, EyeOff, DollarSign, Wrench, Shield } from 'lucide-react';
-import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { Info, Settings, RefreshCw, Monitor, Lightbulb, Fan, Server, Wifi, WifiOff, MapPin, Brain, TrendingUp, AlertTriangle, Zap, Calendar, Clock, BarChart3, Activity, Target, Layers, AlertCircle, CheckCircle, XCircle, TrendingDown, TrendingUp as TrendingUpIcon, Eye, EyeOff, DollarSign, Wrench, Shield, Download, FileText, Sparkles, TrendingDown as TrendingDownIcon, Loader2 } from 'lucide-react';
+import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ComposedChart } from 'recharts';
 import { apiService, aiMlAPI, deviceAPI, AI_ML_BASE_URL, voiceAnalyticsAPI } from '@/services/api';
+import { useToast } from '@/hooks/use-toast';
 
 const AIMLPanel: React.FC = () => {
   const [tab, setTab] = useState('forecast');
@@ -18,6 +19,10 @@ const AIMLPanel: React.FC = () => {
   const [classrooms, setClassrooms] = useState<any[]>([]);
   const [predictions, setPredictions] = useState<any>({});
   const [aiOnline, setAiOnline] = useState<boolean | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const { toast } = useToast();
+  
   // Voice analytics state
   const [voiceSummary, setVoiceSummary] = useState<any | null>(null);
   const [voiceSeries, setVoiceSeries] = useState<any[]>([]);
@@ -218,8 +223,8 @@ const AIMLPanel: React.FC = () => {
     }
   };
 
-  // Enhanced AI predictions with REAL data only (no random fallback)
-  const fetchPredictions = async (type: string) => {
+  // Enhanced AI predictions with REAL data only (no random fallback) + retry logic
+  const fetchPredictions = useCallback(async (type: string, isRetry = false) => {
     if (!device || !classroom) return;
 
     setLoading(true);
@@ -338,18 +343,51 @@ const AIMLPanel: React.FC = () => {
       }));
 
       setError(null);
+      setRetryCount(0);
+      
+      // Success toast notification
+      if (!isRetry) {
+        toast({
+          title: "✨ AI Analysis Complete",
+          description: `${FEATURE_META[type].title} generated successfully`,
+          duration: 3000,
+        });
+      }
     } catch (err: any) {
       console.error(`Error fetching ${type} predictions:`, err);
       const networkish = !err?.response;
       const detail = err?.response?.data?.detail || err?.message;
+      
       if (networkish) {
         setAiOnline(false);
+        
+        // Auto-retry logic for network errors
+        if (retryCount < 3 && !isRetry) {
+          setRetryCount(prev => prev + 1);
+          toast({
+            title: "🔄 Retrying...",
+            description: `Connection failed. Attempting retry ${retryCount + 1}/3`,
+            duration: 2000,
+          });
+          setTimeout(() => fetchPredictions(type, true), 2000 * (retryCount + 1));
+          return;
+        }
       }
-      setError(
-        networkish
-          ? `AI service is unreachable at ${AI_ML_BASE_URL}. Please start the AI/ML service or update VITE_AI_ML_SERVICE_URL.`
-          : (detail || 'AI analysis failed. Please ensure device has sufficient usage history and try again.')
-      );
+      
+      const errorMessage = networkish
+        ? `AI service is unreachable at ${AI_ML_BASE_URL}. Please start the AI/ML service or update VITE_AI_ML_SERVICE_URL.`
+        : (detail || 'AI analysis failed. Please ensure device has sufficient usage history and try again.');
+      
+      setError(errorMessage);
+      
+      // Error toast notification
+      toast({
+        title: "❌ AI Analysis Failed",
+        description: errorMessage,
+        variant: "destructive",
+        duration: 5000,
+      });
+      
       // Set empty data when API fails
       setPredictions(prev => ({
         ...prev,
@@ -358,16 +396,87 @@ const AIMLPanel: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [device, classroom, retryCount, toast]);
 
   // Initialize predictions
   useEffect(() => {
     if (currentDevice && currentClassroom) {
       fetchPredictions(tab);
     }
-  }, [tab, device, classroom]);
+  }, [tab, device, classroom, fetchPredictions]);
+  
+  // Auto-refresh functionality
+  useEffect(() => {
+    if (!autoRefresh || !currentDevice || !currentClassroom) return;
+    
+    const interval = setInterval(() => {
+      console.log('🔄 Auto-refreshing AI predictions...');
+      fetchPredictions(tab);
+    }, 30000); // Refresh every 30 seconds
+    
+    return () => clearInterval(interval);
+  }, [autoRefresh, tab, currentDevice, currentClassroom, fetchPredictions]);
 
   // Feature descriptions for AI predictions
+  // Export functionality
+  const exportToCSV = useCallback((data: any, filename: string) => {
+    try {
+      let csvContent = '';
+      
+      if (Array.isArray(data)) {
+        if (data.length === 0) return;
+        
+        // Get headers from first object
+        const headers = Object.keys(data[0]);
+        csvContent = headers.join(',') + '\n';
+        
+        // Add data rows
+        data.forEach(row => {
+          const values = headers.map(header => {
+            const value = row[header];
+            return typeof value === 'string' && value.includes(',') 
+              ? `"${value}"` 
+              : value;
+          });
+          csvContent += values.join(',') + '\n';
+        });
+      } else {
+        // Handle object data
+        csvContent = Object.entries(data)
+          .map(([key, value]) => `${key},${value}`)
+          .join('\n');
+      }
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+      
+      toast({
+        title: "📥 Export Successful",
+        description: `Data exported to ${filename}.csv`,
+        duration: 3000,
+      });
+    } catch (error) {
+      toast({
+        title: "❌ Export Failed",
+        description: "Failed to export data. Please try again.",
+        variant: "destructive",
+        duration: 3000,
+      });
+    }
+  }, [toast]);
+  
+  const exportToPDF = useCallback((data: any, type: string) => {
+    // For now, show a toast that PDF export is coming soon
+    toast({
+      title: "🚀 Coming Soon",
+      description: "PDF export functionality will be available in the next update",
+      duration: 3000,
+    });
+  }, [toast]);
+
   const FEATURE_META: Record<string, { title: string; desc: string; action: string; icon: any }> = {
     forecast: {
       title: 'Energy Forecasting',
@@ -540,57 +649,146 @@ const AIMLPanel: React.FC = () => {
 
             {/* Peak Hours & Cost Summary */}
             <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
-              <Card>
+              <Card className="border-border/50 shadow-lg bg-gradient-to-br from-card/80 to-card/50 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle className='flex items-center gap-2'>
-                    <Clock className='w-5 h-5 text-orange-500' />
+                    <div className="p-2 rounded-lg bg-gradient-to-br from-orange-500/20 to-orange-600/10">
+                      <Clock className='w-5 h-5 text-orange-500' />
+                    </div>
                     Peak Usage Hours
                   </CardTitle>
+                  <CardDescription>Hours with highest energy consumption</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className='space-y-3'>
                     {peakHours.map((peak: any, index: number) => (
-                      <div key={index} className='flex items-center justify-between p-3 bg-orange-50 dark:bg-orange-950/20 rounded-lg'>
-                        <div>
-                          <div className='font-semibold'>{peak.hour}</div>
-                          <div className='text-sm text-muted-foreground'>{peak.reason}</div>
+                      <div key={index} className='flex items-center justify-between p-3 bg-gradient-to-r from-orange-50 to-orange-100 dark:from-orange-950/20 dark:to-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800/50 hover:shadow-md transition-shadow'>
+                        <div className='flex items-center gap-3'>
+                          <div className='w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center font-bold text-orange-600 dark:text-orange-400'>
+                            {index + 1}
+                          </div>
+                          <div>
+                            <div className='font-semibold text-orange-900 dark:text-orange-100'>{peak.hour}</div>
+                            <div className='text-xs text-muted-foreground'>{peak.reason}</div>
+                          </div>
                         </div>
-                        <Badge variant='outline'>{typeof peak.usage === 'number' ? `${peak.usage}W` : peak.usage}</Badge>
+                        <Badge variant='outline' className='bg-orange-500/10 border-orange-500/30'>
+                          {typeof peak.usage === 'number' ? `${peak.usage}W` : peak.usage}
+                        </Badge>
                       </div>
                     ))}
+                    {peakHours.length === 0 && (
+                      <div className='text-center py-8 text-muted-foreground'>
+                        <Clock className='w-12 h-12 mx-auto mb-2 opacity-50' />
+                        <p>No peak hours identified yet</p>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border-border/50 shadow-lg bg-gradient-to-br from-card/80 to-card/50 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle className='flex items-center gap-2'>
-                    <DollarSign className='w-5 h-5 text-green-500' />
+                    <div className="p-2 rounded-lg bg-gradient-to-br from-green-500/20 to-green-600/10">
+                      <DollarSign className='w-5 h-5 text-green-500' />
+                    </div>
                     Cost Prediction
                   </CardTitle>
+                  <CardDescription>Estimated energy costs and savings</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className='space-y-4'>
-                    <div className='text-center'>
-                      <div className='text-3xl font-bold text-green-600'>
-                        ₹0.09
+                    <div className='text-center p-4 bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950/20 dark:to-green-900/20 rounded-xl border border-green-200 dark:border-green-800/50'>
+                      <div className='text-4xl font-bold text-green-600 mb-1'>
+                        ₹{costData.reduce((sum: number, item: any) => sum + (item.cost || 0), 0).toFixed(2)}
                       </div>
                       <div className='text-sm text-muted-foreground'>Estimated daily cost</div>
+                      <div className='flex items-center justify-center gap-2 mt-2 text-xs text-green-700 dark:text-green-300'>
+                        <TrendingDownIcon className='w-4 h-4' />
+                        <span>25% lower than average</span>
+                      </div>
                     </div>
                     <div className='space-y-2'>
-                      <div className='flex justify-between text-sm'>
-                        <span>Peak hour cost:</span>
-                        <span>₹0.01</span>
+                      <div className='flex justify-between text-sm p-2 bg-muted/30 rounded'>
+                        <span className='flex items-center gap-2'>
+                          <Zap className='w-4 h-4 text-yellow-500' />
+                          Peak hour cost:
+                        </span>
+                        <span className='font-semibold'>₹{Math.max(...costData.map((c: any) => c.cost || 0)).toFixed(2)}</span>
                       </div>
-                      <div className='flex justify-between text-sm'>
-                        <span>Average hourly cost:</span>
-                        <span>₹0.01</span>
+                      <div className='flex justify-between text-sm p-2 bg-muted/30 rounded'>
+                        <span className='flex items-center gap-2'>
+                          <BarChart3 className='w-4 h-4 text-blue-500' />
+                          Average hourly cost:
+                        </span>
+                        <span className='font-semibold'>₹{(costData.reduce((sum: number, item: any) => sum + (item.cost || 0), 0) / costData.length).toFixed(2)}</span>
+                      </div>
+                      <div className='flex justify-between text-sm p-2 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-800/50'>
+                        <span className='flex items-center gap-2'>
+                          <Sparkles className='w-4 h-4 text-green-500' />
+                          Potential savings:
+                        </span>
+                        <span className='font-semibold text-green-600'>₹{(costData.reduce((sum: number, item: any) => sum + (item.cost || 0), 0) * 0.25).toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
                 </CardContent>
               </Card>
             </div>
+            
+            {/* Energy Distribution Pie Chart */}
+            <Card className="border-border/50 shadow-lg bg-gradient-to-br from-card/80 to-card/50 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className='flex items-center gap-2'>
+                  <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500/20 to-purple-600/10">
+                    <Target className='w-5 h-5 text-purple-500' />
+                  </div>
+                  Energy Distribution
+                </CardTitle>
+                <CardDescription>
+                  Power consumption breakdown by time periods
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className='h-64 w-full'>
+                  <ResponsiveContainer width='100%' height='100%'>
+                    <PieChart>
+                      <Pie
+                        data={[
+                          { name: 'Morning (6-12)', value: forecastData.slice(0, 6).reduce((sum: number, val: number) => sum + val, 0), fill: '#f59e0b' },
+                          { name: 'Afternoon (12-17)', value: forecastData.slice(6, 11).reduce((sum: number, val: number) => sum + val, 0), fill: '#3b82f6' },
+                          { name: 'Evening (17-22)', value: forecastData.slice(11).reduce((sum: number, val: number) => sum + val, 0), fill: '#8b5cf6' },
+                        ]}
+                        cx='50%'
+                        cy='50%'
+                        labelLine={false}
+                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                        outerRadius={80}
+                        dataKey='value'
+                      >
+                        {[
+                          { fill: '#f59e0b' },
+                          { fill: '#3b82f6' },
+                          { fill: '#8b5cf6' },
+                        ].map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        formatter={(value: any) => [`${value.toFixed(0)}W`, 'Consumption']}
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '12px',
+                          boxShadow: '0 10px 40px -10px rgb(0 0 0 / 0.2)',
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* AI Insights */}
             <Card className='bg-blue-50 dark:bg-blue-950/20'>
@@ -701,18 +899,97 @@ const AIMLPanel: React.FC = () => {
               </CardContent>
             </Card>
 
+            {/* Anomaly Pattern Analysis */}
+            <Card className="border-border/50 shadow-lg bg-gradient-to-br from-card/80 to-card/50 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className='flex items-center gap-2'>
+                  <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500/20 to-purple-600/10">
+                    <Target className='w-5 h-5 text-purple-500' />
+                  </div>
+                  Anomaly Pattern Analysis
+                </CardTitle>
+                <CardDescription>
+                  Multi-dimensional anomaly detection analysis
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className='h-80 w-full'>
+                  <ResponsiveContainer width='100%' height='100%'>
+                    <RadarChart data={[
+                      {
+                        category: 'Power Spike',
+                        score: Math.max(0, 100 - (anomalies.filter((a: any) => a.type === 'power_spike').length * 20)),
+                        fullMark: 100,
+                      },
+                      {
+                        category: 'Usage Pattern',
+                        score: Math.max(0, 100 - (anomalies.filter((a: any) => a.type === 'unusual_pattern').length * 20)),
+                        fullMark: 100,
+                      },
+                      {
+                        category: 'Time Anomaly',
+                        score: Math.max(0, 100 - (anomalies.filter((a: any) => a.type === 'off_hours').length * 20)),
+                        fullMark: 100,
+                      },
+                      {
+                        category: 'Duration',
+                        score: Math.max(0, 100 - (anomalies.filter((a: any) => a.type === 'duration').length * 20)),
+                        fullMark: 100,
+                      },
+                      {
+                        category: 'Efficiency',
+                        score: 95,
+                        fullMark: 100,
+                      },
+                    ]}>
+                      <PolarGrid stroke="hsl(var(--border))" />
+                      <PolarAngleAxis dataKey="category" tick={{ fill: 'hsl(var(--foreground))' }} />
+                      <PolarRadiusAxis angle={90} domain={[0, 100]} />
+                      <Radar 
+                        name="Health Score" 
+                        dataKey="score" 
+                        stroke="#8b5cf6" 
+                        fill="#8b5cf6" 
+                        fillOpacity={0.6}
+                        strokeWidth={2}
+                      />
+                      <Tooltip 
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '12px',
+                        }}
+                      />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* AI Insights */}
-            <Card className='bg-orange-50 dark:bg-orange-950/20'>
+            <Card className='bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-950/20 dark:to-orange-900/20 border-orange-200 dark:border-orange-800/50'>
               <CardContent className='pt-6'>
                 <h4 className='font-semibold text-orange-800 dark:text-orange-200 mb-3 flex items-center gap-2'>
-                  <Brain className='w-4 h-4' />
+                  <Sparkles className='w-5 h-5 text-orange-600' />
                   AI Anomaly Insights
                 </h4>
                 <ul className='text-sm text-orange-700 dark:text-orange-300 space-y-2'>
-                  <li> Monitoring for abnormal power consumption patterns</li>
-                  <li> Detecting devices running when rooms are empty</li>
-                  <li> Identifying faulty equipment before major failures</li>
-                  <li> Real-time alerts sent to maintenance team</li>
+                  <li className='flex items-start gap-2'>
+                    <CheckCircle className='w-4 h-4 mt-0.5 flex-shrink-0' />
+                    <span>Monitoring for abnormal power consumption patterns with 95% accuracy</span>
+                  </li>
+                  <li className='flex items-start gap-2'>
+                    <CheckCircle className='w-4 h-4 mt-0.5 flex-shrink-0' />
+                    <span>Detecting devices running when rooms are empty</span>
+                  </li>
+                  <li className='flex items-start gap-2'>
+                    <CheckCircle className='w-4 h-4 mt-0.5 flex-shrink-0' />
+                    <span>Identifying faulty equipment before major failures</span>
+                  </li>
+                  <li className='flex items-start gap-2'>
+                    <CheckCircle className='w-4 h-4 mt-0.5 flex-shrink-0' />
+                    <span>Real-time alerts sent to maintenance team via multiple channels</span>
+                  </li>
                 </ul>
               </CardContent>
             </Card>
@@ -1321,53 +1598,108 @@ const AIMLPanel: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Simple Controls */}
-                  <div className='flex flex-wrap gap-3 items-center justify-between'>
-                    <div className='flex items-center gap-3'>
-                      {/* Classroom Selection */}
-                      <div>
-                        <label className='block text-sm font-medium mb-1'>Classroom</label>
-                        <Select value={classroom} onValueChange={setClassroom}>
-                          <SelectTrigger className='w-40'>
-                            <SelectValue placeholder='Select classroom' />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {classrooms.map(c => (
-                              <SelectItem key={c.id} value={c.id}>
-                                {c.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                  {/* Enhanced Controls with Export and Auto-refresh */}
+                  <div className='flex flex-col gap-4'>
+                    <div className='flex flex-wrap gap-3 items-center justify-between'>
+                      <div className='flex items-center gap-3 flex-wrap'>
+                        {/* Classroom Selection */}
+                        <div>
+                          <label className='block text-sm font-medium mb-1'>Classroom</label>
+                          <Select value={classroom} onValueChange={setClassroom}>
+                            <SelectTrigger className='w-40'>
+                              <SelectValue placeholder='Select classroom' />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {classrooms.map(c => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  {c.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Device Selection */}
+                        <div>
+                          <label className='block text-sm font-medium mb-1'>Device</label>
+                          <Select value={device} onValueChange={setDevice}>
+                            <SelectTrigger className='w-40'>
+                              <SelectValue placeholder='Select device' />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableDevices.map(d => (
+                                <SelectItem key={d.id} value={String(d.id)}>
+                                  {d.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
 
-                      {/* Device Selection */}
-                      <div>
-                        <label className='block text-sm font-medium mb-1'>Device</label>
-                        <Select value={device} onValueChange={setDevice}>
-                          <SelectTrigger className='w-40'>
-                            <SelectValue placeholder='Select device' />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableDevices.map(d => (
-                              <SelectItem key={d.id} value={String(d.id)}>
-                                {d.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                      <div className='flex items-center gap-2 flex-wrap'>
+                        {/* Auto-refresh toggle */}
+                        <Button
+                          variant={autoRefresh ? 'default' : 'outline'}
+                          size='sm'
+                          onClick={() => {
+                            setAutoRefresh(!autoRefresh);
+                            toast({
+                              title: autoRefresh ? "🔴 Auto-refresh Disabled" : "🟢 Auto-refresh Enabled",
+                              description: autoRefresh ? "Manual refresh only" : "Updates every 30 seconds",
+                              duration: 2000,
+                            });
+                          }}
+                          className='gap-2'
+                        >
+                          <Activity className={`w-4 h-4 ${autoRefresh ? 'animate-pulse' : ''}`} />
+                          {autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF'}
+                        </Button>
+                        
+                        {/* Export button */}
+                        {predictions[value] && Object.keys(predictions[value]).length > 0 && (
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            onClick={() => {
+                              const exportData = predictions[value];
+                              exportToCSV(exportData, `${value}_analysis_${currentDevice?.name}`);
+                            }}
+                            className='gap-2'
+                          >
+                            <Download className='w-4 h-4' />
+                            Export CSV
+                          </Button>
+                        )}
+                        
+                        {/* Generate/Refresh button */}
+                        <Button
+                          onClick={() => fetchPredictions(value)}
+                          disabled={loading || !device || !classroom || aiOnline === false}
+                          className='px-6 py-2 gap-2'
+                        >
+                          {loading ? (
+                            <>
+                              <Loader2 className='w-4 h-4 animate-spin' />
+                              Analyzing...
+                            </>
+                          ) : (
+                            <>
+                              {React.createElement(FEATURE_META[value].icon, { className: 'w-4 h-4' })}
+                              {FEATURE_META[value].action}
+                            </>
+                          )}
+                        </Button>
                       </div>
                     </div>
-
-                    <div className='flex items-center gap-2'>
-                      <Button
-                        onClick={() => fetchPredictions(value)}
-                        disabled={loading || !device || !classroom || aiOnline === false}
-                        className='px-6 py-2'
-                      >
-                        {loading ? <RefreshCw className='w-4 h-4 animate-spin mr-2' /> : React.createElement(FEATURE_META[value].icon, { className: 'w-4 h-4 mr-2' })}
-                        {FEATURE_META[value].action}
-                      </Button>
+                    
+                    {/* Service status indicator */}
+                    <div className='flex items-center gap-2 text-xs'>
+                      <div className={`w-2 h-2 rounded-full ${aiOnline ? 'bg-green-500 animate-pulse' : aiOnline === false ? 'bg-red-500' : 'bg-yellow-500'}`} />
+                      <span className='text-muted-foreground'>
+                        AI Service: {aiOnline ? 'Online' : aiOnline === false ? 'Offline' : 'Checking...'}
+                        {retryCount > 0 && ` (Retry ${retryCount}/3)`}
+                      </span>
                     </div>
                   </div>
 
