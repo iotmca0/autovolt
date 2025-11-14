@@ -98,44 +98,82 @@ async function validateVoiceSession(voiceToken) {
 }
 
 /**
- * Middleware to validate voice session
+ * Middleware to validate voice session or JWT authentication
  */
 const voiceAuth = async (req, res, next) => {
   try {
+    console.log('[VoiceAuth Debug] Starting voiceAuth middleware');
+    console.log('[VoiceAuth Debug] req.user exists:', !!req.user);
+    if (req.user) {
+      console.log('[VoiceAuth Debug] req.user:', { id: req.user.id, name: req.user.name, role: req.user.role });
+    }
+
     const voiceToken = req.body.voiceToken || req.query.voiceToken || req.headers['x-voice-token'];
+    console.log('[VoiceAuth Debug] voiceToken provided:', !!voiceToken);
 
-    if (!voiceToken) {
-      return res.status(401).json({
-        success: false,
-        message: 'Voice authentication required',
-        code: 'NO_VOICE_TOKEN'
-      });
+    // If voice token is provided, validate it
+    if (voiceToken) {
+      console.log('[VoiceAuth Debug] Validating voice token...');
+      const validation = await validateVoiceSession(voiceToken);
+
+      if (!validation.valid) {
+        console.log('[VoiceAuth Debug] Voice token validation failed:', validation.error);
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid or expired voice session',
+          code: 'INVALID_VOICE_SESSION',
+          error: validation.error
+        });
+      }
+
+      // Check if voice session matches the authenticated user
+      if (req.user && req.user.id !== validation.userId) {
+        console.log('[VoiceAuth Debug] Voice session user mismatch');
+        return res.status(403).json({
+          success: false,
+          message: 'Voice session does not match authenticated user',
+          code: 'SESSION_MISMATCH'
+        });
+      }
+
+      // Attach voice session info to request
+      req.voiceSession = validation.session;
+      console.log('[VoiceAuth Debug] Voice token validation successful, proceeding...');
+      return next();
     }
 
-    const validation = await validateVoiceSession(voiceToken);
+    // No voice token provided - check if user is authenticated via JWT
+    // This allows JWT-authenticated users to use voice commands without a separate voice session
+    if (req.user) {
+      console.log('[Voice Auth] Using JWT authentication for voice command (no voice session):', req.user.name || req.user.email);
 
-    if (!validation.valid) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired voice session',
-        code: 'INVALID_VOICE_SESSION',
-        error: validation.error
-      });
+      // Create a temporary voice session-like object for JWT-authenticated users
+      req.voiceSession = {
+        userId: req.user.id || req.user._id,
+        userName: req.user.name || req.user.email,
+        role: req.user.role,
+        permissions: {}, // Will be checked by role permissions later
+        createdAt: new Date(),
+        lastUsed: new Date(),
+        commandCount: 0,
+        isJwtFallback: true // Mark this as JWT fallback
+      };
+
+      console.log('[VoiceAuth Debug] JWT fallback successful, proceeding...');
+      return next();
     }
 
-    // Check if voice session matches the authenticated user
-    if (req.user && req.user.id !== validation.userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Voice session does not match authenticated user',
-        code: 'SESSION_MISMATCH'
-      });
-    }
+    // Neither voice token nor JWT authentication available
+    console.log('[VoiceAuth Debug] No authentication available');
+    logger.warn('[Voice Auth] No authentication available - req.user:', !!req.user, 'voiceToken:', !!voiceToken);
+    return res.status(401).json({
+      success: false,
+      message: 'Voice authentication required',
+      code: 'NO_VOICE_TOKEN'
+    });
 
-    // Attach voice session info to request
-    req.voiceSession = validation.session;
-    next();
   } catch (error) {
+    console.log('[VoiceAuth Debug] Middleware error:', error.message);
     logger.error('[Voice Auth] Middleware error:', error);
     res.status(500).json({
       success: false,
