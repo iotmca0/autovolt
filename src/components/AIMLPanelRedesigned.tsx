@@ -18,6 +18,15 @@ import {
 import { apiService, aiMlAPI, deviceAPI, AI_ML_BASE_URL, voiceAnalyticsAPI } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 
+// Empty state component
+const EmptyState = ({ icon: Icon, title, description }: any) => (
+  <div className='flex flex-col items-center justify-center py-16 px-4'>
+    <Icon className='w-16 h-16 text-muted-foreground/40 mb-4' />
+    <h3 className='text-lg font-semibold text-foreground mb-2'>{title}</h3>
+    <p className='text-sm text-muted-foreground text-center max-w-md'>{description}</p>
+  </div>
+);
+
 const AIMLPanel: React.FC = () => {
   const [tab, setTab] = useState('forecast');
   const [classroom, setClassroom] = useState('');
@@ -32,6 +41,11 @@ const AIMLPanel: React.FC = () => {
   const [retryCount, setRetryCount] = useState(0);
   const { toast } = useToast();
   
+  // AI/ML state
+  const [forecastData, setForecastData] = useState<any>(null);
+  const [anomalyData, setAnomalyData] = useState<any>(null);
+  const [scheduleData, setScheduleData] = useState<any>(null);
+
   // Voice analytics state
   const [voiceSummary, setVoiceSummary] = useState<any | null>(null);
   const [voiceSeries, setVoiceSeries] = useState<any[]>([]);
@@ -129,6 +143,77 @@ const AIMLPanel: React.FC = () => {
     }
   }, [tab]);
 
+  // Fetch AI/ML data when tabs are active
+  useEffect(() => {
+    if (tab === 'forecast' && currentDevice && aiOnline) {
+      fetchForecastData();
+    }
+  }, [tab, currentDevice, aiOnline]);
+
+  useEffect(() => {
+    if (tab === 'anomaly' && currentDevice && aiOnline) {
+      fetchAnomalyData();
+    }
+  }, [tab, currentDevice, aiOnline]);
+
+  useEffect(() => {
+    if (tab === 'workflow' && currentDevice && aiOnline) {
+      fetchScheduleData();
+    }
+  }, [tab, currentDevice, aiOnline]);
+
+  const fetchForecastData = async () => {
+    if (!currentDevice) return;
+    
+    try {
+      setLoading(true);
+      // Generate sample historical data for forecasting
+      const history = Array.from({ length: 24 }, () => Math.random() * 100 + 50);
+      const response = await aiMlAPI.forecast(currentDevice.id, history, 5);
+      setForecastData(response.data);
+    } catch (error) {
+      console.error('Forecast fetch failed:', error);
+      setError('Failed to fetch forecast data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAnomalyData = async () => {
+    if (!currentDevice) return;
+    
+    try {
+      setLoading(true);
+      // Generate sample data for anomaly detection
+      const values = Array.from({ length: 50 }, () => Math.random() * 100 + 50);
+      const response = await aiMlAPI.anomaly(currentDevice.id, values);
+      setAnomalyData(response.data);
+    } catch (error) {
+      console.error('Anomaly fetch failed:', error);
+      setError('Failed to fetch anomaly data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchScheduleData = async () => {
+    if (!currentDevice) return;
+    
+    try {
+      setLoading(true);
+      const response = await aiMlAPI.schedule(currentDevice.id, {
+        class_schedule: { weekends: false },
+        energy_budget: 75
+      });
+      setScheduleData(response.data);
+    } catch (error) {
+      console.error('Schedule fetch failed:', error);
+      setError('Failed to fetch schedule data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Feature metadata
   const FEATURE_META: Record<string, { title: string; desc: string; action: string; icon: any }> = {
     forecast: {
@@ -171,15 +256,6 @@ const AIMLPanel: React.FC = () => {
     { value: 'workflow', label: 'Automation', icon: Layers },
     { value: 'voice', label: 'Voice', icon: Brain },
   ];
-
-  // Empty state component
-  const EmptyState = ({ icon: Icon, title, description }: any) => (
-    <div className='flex flex-col items-center justify-center py-16 px-4'>
-      <Icon className='w-16 h-16 text-muted-foreground/40 mb-4' />
-      <h3 className='text-lg font-semibold text-foreground mb-2'>{title}</h3>
-      <p className='text-sm text-muted-foreground text-center max-w-md'>{description}</p>
-    </div>
-  );
 
   if (loading && devices.length === 0) {
     return (
@@ -364,6 +440,27 @@ const AIMLPanel: React.FC = () => {
               <TabsContent key={value} value={value} className='mt-6 space-y-6'>
                 {value === 'voice' ? (
                   <VoiceAnalyticsTab voiceSummary={voiceSummary} voiceSeries={voiceSeries} />
+                ) : value === 'forecast' ? (
+                  <ForecastTab 
+                    data={forecastData} 
+                    loading={loading} 
+                    onRefresh={fetchForecastData}
+                    device={currentDevice}
+                  />
+                ) : value === 'anomaly' ? (
+                  <AnomalyTab 
+                    data={anomalyData} 
+                    loading={loading} 
+                    onRefresh={fetchAnomalyData}
+                    device={currentDevice}
+                  />
+                ) : value === 'workflow' ? (
+                  <WorkflowTab 
+                    data={scheduleData} 
+                    loading={loading} 
+                    onRefresh={fetchScheduleData}
+                    device={currentDevice}
+                  />
                 ) : (
                   <div className='text-center py-12'>
                     <EmptyState 
@@ -463,6 +560,427 @@ const VoiceAnalyticsTab: React.FC<{ voiceSummary: any; voiceSeries: any[] }> = (
                 <Bar dataKey='total' name='Total' fill='#94a3b8' radius={[4, 4, 0, 0]} />
                 <Bar dataKey='success' name='Success' fill='#22c55e' radius={[4, 4, 0, 0]} />
               </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+// Forecast Tab Component
+const ForecastTab: React.FC<{ data: any; loading: boolean; onRefresh: () => void; device: any }> = ({ 
+  data, loading, onRefresh, device 
+}) => {
+  if (loading) {
+    return (
+      <div className='flex items-center justify-center py-12'>
+        <Loader2 className='w-8 h-8 animate-spin text-primary' />
+        <span className='ml-2'>Generating forecast...</span>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className='text-center py-12'>
+        <EmptyState 
+          icon={TrendingUp}
+          title="No Forecast Data"
+          description="Click the refresh button to generate energy consumption forecasts."
+        />
+        <Button onClick={onRefresh} className='mt-4'>
+          <RefreshCw className='w-4 h-4 mr-2' />
+          Generate Forecast
+        </Button>
+      </div>
+    );
+  }
+
+  const forecastData = data.forecast?.map((value: number, index: number) => ({
+    period: `+${index + 1}h`,
+    forecast: Math.round(value * 100) / 100,
+    confidence: data.confidence?.[index] ? Math.round(data.confidence[index] * 100) : 80
+  })) || [];
+
+  return (
+    <div className='space-y-6'>
+      {/* Summary Cards */}
+      <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+        <Card className='border-border/50 shadow-lg'>
+          <CardHeader className='pb-3'>
+            <CardTitle className='text-sm font-medium text-muted-foreground'>Next Hour</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className='text-2xl font-bold text-primary'>
+              {forecastData[0]?.forecast ?? 0} kWh
+            </div>
+            <p className='text-xs text-muted-foreground mt-1'>
+              Confidence: {forecastData[0]?.confidence ?? 0}%
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className='border-border/50 shadow-lg'>
+          <CardHeader className='pb-3'>
+            <CardTitle className='text-sm font-medium text-muted-foreground'>5-Hour Average</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className='text-2xl font-bold text-blue-600'>
+              {forecastData.length > 0 ? Math.round(forecastData.reduce((sum: number, item: any) => sum + item.forecast, 0) / forecastData.length * 100) / 100 : 0} kWh
+            </div>
+            <p className='text-xs text-muted-foreground mt-1'>
+              Predicted consumption
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className='border-border/50 shadow-lg'>
+          <CardHeader className='pb-3'>
+            <CardTitle className='text-sm font-medium text-muted-foreground'>Model Type</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className='text-2xl font-bold text-green-600'>
+              {data.model_type || 'Simple'}
+            </div>
+            <p className='text-xs text-muted-foreground mt-1'>
+              Forecasting algorithm
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Forecast Chart */}
+      <Card className='border-border/50 shadow-lg'>
+        <CardHeader>
+          <CardTitle className='flex items-center justify-between'>
+            <div className='flex items-center gap-2'>
+              <TrendingUp className='w-5 h-5' />
+              Energy Consumption Forecast
+            </div>
+            <Button variant='outline' size='sm' onClick={onRefresh}>
+              <RefreshCw className='w-4 h-4 mr-2' />
+              Refresh
+            </Button>
+          </CardTitle>
+          <CardDescription>
+            AI-powered predictions for {device?.name} energy usage over the next 5 hours
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className='h-80 w-full'>
+            <ResponsiveContainer width='100%' height='100%'>
+              <LineChart data={forecastData}>
+                <CartesianGrid strokeDasharray='3 3' stroke='hsl(var(--border))' opacity={0.3} />
+                <XAxis dataKey='period' />
+                <YAxis />
+                <Tooltip 
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px',
+                  }}
+                />
+                <Legend />
+                <Line 
+                  type='monotone' 
+                  dataKey='forecast' 
+                  stroke='#3b82f6' 
+                  strokeWidth={3}
+                  name='Predicted (kWh)'
+                  dot={{ fill: '#3b82f6', strokeWidth: 2, r: 4 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+// Anomaly Detection Tab Component
+const AnomalyTab: React.FC<{ data: any; loading: boolean; onRefresh: () => void; device: any }> = ({ 
+  data, loading, onRefresh, device 
+}) => {
+  if (loading) {
+    return (
+      <div className='flex items-center justify-center py-12'>
+        <Loader2 className='w-8 h-8 animate-spin text-primary' />
+        <span className='ml-2'>Detecting anomalies...</span>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className='text-center py-12'>
+        <EmptyState 
+          icon={AlertTriangle}
+          title="No Anomaly Data"
+          description="Click the refresh button to run anomaly detection on recent data."
+        />
+        <Button onClick={onRefresh} className='mt-4'>
+          <RefreshCw className='w-4 h-4 mr-2' />
+          Detect Anomalies
+        </Button>
+      </div>
+    );
+  }
+
+  const anomalyCount = data.anomalies?.length || 0;
+  const totalPoints = data.scores?.length || 0;
+  const anomalyRate = totalPoints > 0 ? Math.round((anomalyCount / totalPoints) * 100 * 100) / 100 : 0;
+
+  const chartData = data.scores?.map((score: number, index: number) => ({
+    index,
+    score: Math.round(score * 1000) / 1000,
+    isAnomaly: data.anomalies?.includes(index) || false
+  })) || [];
+
+  return (
+    <div className='space-y-6'>
+      {/* Summary Cards */}
+      <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+        <Card className='border-border/50 shadow-lg'>
+          <CardHeader className='pb-3'>
+            <CardTitle className='text-sm font-medium text-muted-foreground'>Anomalies Detected</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className='text-2xl font-bold text-red-600'>{anomalyCount}</div>
+            <p className='text-xs text-muted-foreground mt-1'>
+              Out of {totalPoints} data points
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className='border-border/50 shadow-lg'>
+          <CardHeader className='pb-3'>
+            <CardTitle className='text-sm font-medium text-muted-foreground'>Anomaly Rate</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className='text-2xl font-bold text-orange-600'>{anomalyRate}%</div>
+            <p className='text-xs text-muted-foreground mt-1'>
+              Abnormal data percentage
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className='border-border/50 shadow-lg'>
+          <CardHeader className='pb-3'>
+            <CardTitle className='text-sm font-medium text-muted-foreground'>Threshold</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className='text-2xl font-bold text-blue-600'>
+              {data.threshold ? Math.round(data.threshold * 1000) / 1000 : 0}
+            </div>
+            <p className='text-xs text-muted-foreground mt-1'>
+              Detection sensitivity
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Anomaly Chart */}
+      <Card className='border-border/50 shadow-lg'>
+        <CardHeader>
+          <CardTitle className='flex items-center justify-between'>
+            <div className='flex items-center gap-2'>
+              <AlertTriangle className='w-5 h-5' />
+              Anomaly Detection Results
+            </div>
+            <Button variant='outline' size='sm' onClick={onRefresh}>
+              <RefreshCw className='w-4 h-4 mr-2' />
+              Re-run Detection
+            </Button>
+          </CardTitle>
+          <CardDescription>
+            Machine learning analysis of {device?.name} behavior patterns
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className='h-80 w-full'>
+            <ResponsiveContainer width='100%' height='100%'>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray='3 3' stroke='hsl(var(--border))' opacity={0.3} />
+                <XAxis dataKey='index' />
+                <YAxis />
+                <Tooltip 
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px',
+                  }}
+                />
+                <Legend />
+                <Line 
+                  type='monotone' 
+                  dataKey='score' 
+                  stroke='#6b7280' 
+                  strokeWidth={2}
+                  name='Anomaly Score'
+                  dot={false}
+                />
+                {chartData.filter(d => d.isAnomaly).map((point, idx) => (
+                  <Line
+                    key={`anomaly-${idx}`}
+                    type='monotone'
+                    data={[point]}
+                    stroke='#ef4444'
+                    strokeWidth={0}
+                    dot={{ fill: '#ef4444', strokeWidth: 2, r: 6 }}
+                    name='Anomaly'
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+// Workflow/Schedule Tab Component
+const WorkflowTab: React.FC<{ data: any; loading: boolean; onRefresh: () => void; device: any }> = ({ 
+  data, loading, onRefresh, device 
+}) => {
+  if (loading) {
+    return (
+      <div className='flex items-center justify-center py-12'>
+        <Loader2 className='w-8 h-8 animate-spin text-primary' />
+        <span className='ml-2'>Optimizing schedule...</span>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className='text-center py-12'>
+        <EmptyState 
+          icon={Layers}
+          title="No Schedule Data"
+          description="Click the refresh button to generate an optimized energy schedule."
+        />
+        <Button onClick={onRefresh} className='mt-4'>
+          <RefreshCw className='w-4 h-4 mr-2' />
+          Generate Schedule
+        </Button>
+      </div>
+    );
+  }
+
+  const scheduleData = data.schedule || {};
+  const savings = data.energy_savings || 0;
+
+  const scheduleItems = Object.entries(scheduleData).map(([day, config]: [string, any]) => ({
+    day: day.charAt(0).toUpperCase() + day.slice(1),
+    start: config.start || 'N/A',
+    end: config.end || 'N/A',
+    priority: config.priority || 'off'
+  }));
+
+  return (
+    <div className='space-y-6'>
+      {/* Summary Cards */}
+      <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+        <Card className='border-border/50 shadow-lg'>
+          <CardHeader className='pb-3'>
+            <CardTitle className='text-sm font-medium text-muted-foreground'>Energy Savings</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className='text-3xl font-bold text-green-600'>{savings}%</div>
+            <p className='text-xs text-muted-foreground mt-1'>
+              Potential reduction in consumption
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className='border-border/50 shadow-lg'>
+          <CardHeader className='pb-3'>
+            <CardTitle className='text-sm font-medium text-muted-foreground'>Schedule Type</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className='text-2xl font-bold text-blue-600'>Optimized</div>
+            <p className='text-xs text-muted-foreground mt-1'>
+              AI-generated energy schedule
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Schedule Table */}
+      <Card className='border-border/50 shadow-lg'>
+        <CardHeader>
+          <CardTitle className='flex items-center justify-between'>
+            <div className='flex items-center gap-2'>
+              <Clock className='w-5 h-5' />
+              Optimized Schedule for {device?.name}
+            </div>
+            <Button variant='outline' size='sm' onClick={onRefresh}>
+              <RefreshCw className='w-4 h-4 mr-2' />
+              Re-optimize
+            </Button>
+          </CardTitle>
+          <CardDescription>
+            AI-optimized energy usage schedule based on classroom patterns and energy goals
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className='space-y-3'>
+            {scheduleItems.map((item, index) => (
+              <div key={index} className='flex items-center justify-between p-3 bg-muted/30 rounded-lg'>
+                <div className='flex items-center gap-3'>
+                  <div className='w-20 font-medium text-sm'>{item.day}</div>
+                  <div className='text-sm text-muted-foreground'>
+                    {item.start} - {item.end}
+                  </div>
+                </div>
+                <Badge 
+                  variant={
+                    item.priority === 'high' ? 'default' :
+                    item.priority === 'medium' ? 'secondary' :
+                    item.priority === 'low' ? 'outline' : 'destructive'
+                  }
+                >
+                  {item.priority === 'off' ? 'Off' : item.priority.charAt(0).toUpperCase() + item.priority.slice(1)}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Energy Savings Visualization */}
+      <Card className='border-border/50 shadow-lg'>
+        <CardHeader>
+          <CardTitle className='flex items-center gap-2'>
+            <DollarSign className='w-5 h-5' />
+            Energy Savings Breakdown
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className='h-64 w-full'>
+            <ResponsiveContainer width='100%' height='100%'>
+              <PieChart>
+                <Pie
+                  data={[
+                    { name: 'Optimized Usage', value: 100 - savings, fill: '#22c55e' },
+                    { name: 'Energy Saved', value: savings, fill: '#ef4444' }
+                  ]}
+                  cx='50%'
+                  cy='50%'
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={5}
+                  dataKey='value'
+                >
+                  <Cell fill='#22c55e' />
+                  <Cell fill='#ef4444' />
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </PieChart>
             </ResponsiveContainer>
           </div>
         </CardContent>

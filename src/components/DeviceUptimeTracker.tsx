@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar as CalendarIcon, Clock, Power, ToggleLeft, ToggleRight, Activity } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, Power, ToggleLeft, ToggleRight, Activity, Info } from 'lucide-react';
 import { apiService } from '@/services/api';
 
 interface Device {
@@ -502,27 +502,37 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
 
                       {/* Current State Duration - Prominent Display */}
                       <div className={`p-4 rounded-lg ${
-                        isOn 
-                          ? 'bg-blue-100 dark:bg-blue-900/40 border border-blue-300 dark:border-blue-700' 
+                        isOn
+                          ? 'bg-blue-100 dark:bg-blue-900/40 border border-blue-300 dark:border-blue-700'
                           : 'bg-gray-100 dark:bg-gray-800/40 border border-gray-300 dark:border-gray-600'
                       }`}>
                         <div className="flex items-center justify-between">
-                          <div>
+                          <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
                               <Power className={`h-5 w-5 ${isOn ? 'text-blue-600' : 'text-gray-600'}`} />
                               <span className="text-sm font-medium text-muted-foreground">
-                                {isOn ? 'Been ON for' : 'Been OFF for'}
+                                {isOn ? 'Currently ON for' : 'Currently OFF for'}
                               </span>
+                              <Info 
+                                className="h-3 w-3 text-muted-foreground cursor-help" 
+                                title={isOn 
+                                  ? "How long this switch has been continuously ON since its last state change"
+                                  : "How long this switch has been continuously OFF since its last state change"
+                                }
+                              />
                             </div>
                             <div className={`text-3xl font-bold ${
                               isOn ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'
                             }`}>
                               {currentDuration}
                             </div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              Continuous {isOn ? 'ON' : 'OFF'} duration
+                            </div>
                           </div>
                           <div className="text-right">
                             <div className="text-xs text-muted-foreground mb-1">
-                              Last {isOn ? 'turned ON' : 'turned OFF'}
+                              State changed at
                             </div>
                             <div className="text-sm font-medium">
                               {formatTimestamp(lastChangeTime) !== 'N/A'
@@ -531,27 +541,37 @@ export function DeviceUptimeTracker({ devices }: { devices: Device[] }) {
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
                               {formatTimestamp(lastChangeTime) !== 'N/A'
-                                ? `(${getTimeSince(lastChangeTime)})`
+                                ? `(${getTimeSince(lastChangeTime)} ago)`
                                 : ''}
                             </div>
                           </div>
                         </div>
-                      </div>
-
-                      {/* Summary Stats */}
+                      </div>                      {/* Summary Stats */}
                       <div className="grid grid-cols-2 gap-3">
                         <div className="p-3 bg-white dark:bg-gray-800 border rounded-lg">
-                          <div className="text-xs text-muted-foreground mb-1">Total ON Time {timeframe === 'month' ? 'This Month' : 'Today'}</div>
+                          <div className="flex items-center gap-1 mb-1">
+                            <span className="text-xs text-muted-foreground">Total ON Time {timeframe === 'month' ? 'This Month' : 'Today'}</span>
+                            <Info 
+                              className="h-3 w-3 text-muted-foreground cursor-help" 
+                              title="Cumulative time this switch was ON during the selected time period"
+                            />
+                          </div>
                           <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">{stat.totalOnTime}</div>
                           <div className="text-xs text-muted-foreground mt-1">
-                            {stat.onDuration > 0 ? `${Math.floor(stat.onDuration)} seconds` : 'No activity'}
+                            {stat.onDuration > 0 ? `${Math.floor(stat.onDuration)} seconds total` : 'No ON activity'}
                           </div>
                         </div>
                         <div className="p-3 bg-white dark:bg-gray-800 border rounded-lg">
-                          <div className="text-xs text-muted-foreground mb-1">Total OFF Time {timeframe === 'month' ? 'This Month' : 'Today'}</div>
+                          <div className="flex items-center gap-1 mb-1">
+                            <span className="text-xs text-muted-foreground">Total OFF Time {timeframe === 'month' ? 'This Month' : 'Today'}</span>
+                            <Info 
+                              className="h-3 w-3 text-muted-foreground cursor-help" 
+                              title="Cumulative time this switch was OFF during the selected time period"
+                            />
+                          </div>
                           <div className="text-lg font-semibold text-gray-600 dark:text-gray-400">{stat.totalOffTime}</div>
                           <div className="text-xs text-muted-foreground mt-1">
-                            {stat.offDuration > 0 ? `${Math.floor(stat.offDuration)} seconds` : 'No activity'}
+                            {stat.offDuration > 0 ? `${Math.floor(stat.offDuration)} seconds total` : 'No OFF activity'}
                           </div>
                         </div>
                       </div>

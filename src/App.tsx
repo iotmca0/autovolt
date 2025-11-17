@@ -17,7 +17,7 @@ import { ThemeProvider } from '@/components/ThemeProvider';
 import { LogoLoader } from '@/components/Logo';
 import { SkipToContent } from '@/components/SkipToContent';
 import ErrorBoundary from '@/components/ErrorBoundary';
-import { FloatingVoiceMic } from '@/components/FloatingVoiceMic';
+import FloatingVoiceMic from '@/components/FloatingVoiceMic';
 
 // Lazy load components for better performance
 const Index = lazy(() => import("./pages/Index"));

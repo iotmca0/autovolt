@@ -651,7 +651,7 @@ export const voiceAssistantAPI = {
     deviceName?: string;
     switchName?: string;
     assistant?: string;
-    voiceToken: string;
+    voiceToken?: string; // Made optional for JWT fallback
     // Extended structured intent support (optional)
     intentType?: string;
     devices?: string[];

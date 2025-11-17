@@ -9,7 +9,7 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { authAPI } from '@/services/api';
-import { Eye, EyeOff, Home, Lock, Mail, Loader2, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, Loader2, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import '../styles/login.css';
 
@@ -201,17 +201,6 @@ const Login: React.FC = () => {
         ))}
       </div>
 
-      {/* Back to Home Button */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="absolute top-4 left-4 gap-2 z-10 backdrop-blur-sm bg-card/50 hover:bg-card/70 border border-border text-foreground animate-fade-in"
-        onClick={() => navigate('/landing')}
-      >
-        <Home className="h-4 w-4" />
-        <span className="hidden sm:inline">Back to Home</span>
-      </Button>
-      
       {/* Logo and Title */}
       <div className="text-center mb-8 z-10 animate-fade-in-up">
         <div className="flex justify-center mb-4">

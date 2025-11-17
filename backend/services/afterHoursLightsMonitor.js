@@ -3,14 +3,14 @@ const Device = require('../models/Device');
 const telegramService = require('./telegramService');
 
 /**
- * After Hours Lights Monitoring Service
+ * After Hours Switches Monitoring Service
  * 
- * Monitors for lights turned on after 5 PM (17:00) and sends real-time
+ * Monitors for switches turned on after 5 PM (17:00) and sends real-time
  * alerts to security personnel via Telegram.
  * 
  * Features:
  * - Real-time monitoring of activity logs
- * - Detects lights turned on after 5 PM
+ * - Detects switches turned on after 5 PM
  * - Sends immediate alerts to security personnel
  * - Tracks alert history to avoid spam
  * - Configurable time threshold
@@ -39,7 +39,7 @@ class AfterHoursLightsMonitor {
 
     this.isRunning = true;
     this.lastCheckedTimestamp = new Date();
-    console.log(`[AFTER-HOURS] Starting after-hours lights monitoring (threshold: ${this.afterHoursThreshold}:00)`);
+    console.log(`[AFTER-HOURS] Starting after-hours switches monitoring (threshold: ${this.afterHoursThreshold}:00)`);
 
     // Run initial check
     this.checkAfterHoursLights();
@@ -70,7 +70,7 @@ class AfterHoursLightsMonitor {
       this.cleanupIntervalId = null;
     }
     this.isRunning = false;
-    console.log('[AFTER-HOURS] After-hours lights monitoring service stopped');
+    console.log('[AFTER-HOURS] After-hours switches monitoring service stopped');
   }
 
   /**
@@ -84,24 +84,24 @@ class AfterHoursLightsMonitor {
       const recentLightActivations = await ActivityLog.find({
         timestamp: { $gt: this.lastCheckedTimestamp },
         action: { $in: ['on', 'manual_on'] },
-        switchName: { $regex: /light|lamp|bulb/i }  // Match light switches
+        // Removed switch name filter to monitor ALL switches after hours
       })
       .sort({ timestamp: 1 })
       .populate('deviceId', 'name classroom location')
       .limit(100); // Limit to prevent overload
 
-      console.log(`[AFTER-HOURS] Found ${recentLightActivations.length} recent light activations`);
+      console.log(`[AFTER-HOURS] Found ${recentLightActivations.length} recent switch activations`);
 
       // Update last checked timestamp
       const newTimestamp = new Date();
 
-      // Filter for lights turned on after hours
+      // Filter for switches turned on after hours
       const afterHoursActivations = recentLightActivations.filter(log => {
         const hour = new Date(log.timestamp).getHours();
-        return hour >= this.afterHoursThreshold || hour < 6; // After 5 PM or before 6 AM
+        return hour >= this.afterHoursThreshold || hour < 7; // After 5 PM or before 7 AM
       });
 
-      console.log(`[AFTER-HOURS] ${afterHoursActivations.length} lights turned on after ${this.afterHoursThreshold}:00`);
+      console.log(`[AFTER-HOURS] ${afterHoursActivations.length} switches turned on after ${this.afterHoursThreshold}:00 or before 07:00`);
 
       if (afterHoursActivations.length > 0) {
         // Group by device and classroom for better alert organization
@@ -168,8 +168,8 @@ class AfterHoursLightsMonitor {
       console.log(`[AFTER-HOURS] Sending alert for ${activations.length} lights in ${classroom}`);
 
       // Build detailed alert message
-      let message = `🚨 *After-Hours Lights Alert*\n\n`;
-      message += `⚠️ ${activations.length} light(s) turned ON after ${this.afterHoursThreshold}:00\n\n`;
+      let message = `🚨 *After-Hours Switch Alert*\n\n`;
+      message += `⚠️ ${activations.length} switch(es) turned ON after ${this.afterHoursThreshold}:00\n\n`;
       message += `*Location:* ${classroom}\n\n`;
 
       // Add details for each activation
@@ -189,11 +189,11 @@ class AfterHoursLightsMonitor {
 
       // Prepare alert data for Telegram service
       const alertData = {
-        alertname: 'Lights Turned On After Hours',
-        summary: `${activations.length} light(s) turned on in ${classroom} after ${this.afterHoursThreshold}:00`,
+        alertname: 'Switches Turned On After Hours',
+        summary: `${activations.length} switch(es) turned on in ${classroom} after ${this.afterHoursThreshold}:00`,
         description: message,
         severity: 'warning',
-        instance: 'after_hours_lights_monitor',
+        instance: 'after_hours_switches_monitor',
         value: activations.length,
         classroom: classroom
       };

@@ -13,7 +13,7 @@
 // General firmware configuration
 #define NUM_SWITCHES 6
 #define MAX_COMMAND_QUEUE 16
-#define MANUAL_DEBOUNCE_MS 100
+#define MANUAL_DEBOUNCE_MS 200
 #define WDT_TIMEOUT_MS 15000  // 15 seconds watchdog
 
 // MQTT Broker Configuration - Update this to match your network

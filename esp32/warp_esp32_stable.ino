@@ -522,7 +522,7 @@ void processCommandQueue() {
     // advance the queue and account for the slot we consumed
     commandQueueHead = (commandQueueHead + 1) % MAX_COMMAND_QUEUE;
     processed++;
-    // Move the lastSwitchApply forward by one slot so subsequent loops
+    // Move the lastSwitchApply forward to the next slot so subsequent loops
     // maintain consistent spacing even if we processed multiple now.
     lastSwitchApply += RELAY_SWITCH_STAGGER_MS;
   }
@@ -533,6 +533,11 @@ void processCommandQueue() {
 // ========================================
 void handleManualSwitches() {
   unsigned long now = millis();
+  
+  // Ignore manual switch handling until grace period after boot has passed
+  // to avoid spurious triggers from power-on noise or unstable GPIOs
+  if (now - bootTime < 3000) return;  // 3 second grace period
+  
   for (int i = 0; i < NUM_SWITCHES; i++) {
     SwitchState &sw = switchesLocal[i];
     if (!sw.manualEnabled || sw.manualGpio < 0 || sw.manualGpio > 39) continue;
@@ -563,7 +568,7 @@ void handleManualSwitches() {
     int rawLevel = digitalRead(sw.manualGpio);
     bool active = sw.manualActiveLow ? (rawLevel == LOW) : (rawLevel == HIGH);
 
-    // Enhanced debouncing with hysteresis
+    // Enhanced debouncing with hysteresis - increased debounce time for noisy environments
     if (rawLevel != sw.lastManualLevel) {
       sw.lastManualChangeMs = now;
       sw.lastManualLevel = rawLevel;
@@ -573,7 +578,8 @@ void handleManualSwitches() {
     }
 
     // Require longer debounce time for activation (prevent false triggers)
-    int requiredDebounce = active ? MANUAL_DEBOUNCE_MS * 2 : MANUAL_DEBOUNCE_MS;
+    // Increased from 2x to 3x for better noise immunity
+    int requiredDebounce = active ? MANUAL_DEBOUNCE_MS * 3 : MANUAL_DEBOUNCE_MS;
     
     if ((now - sw.lastManualChangeMs) > requiredDebounce) {
       if (rawLevel != sw.stableManualLevel) {
@@ -588,8 +594,8 @@ void handleManualSwitches() {
           if (sw.manualMomentary) {
             // Momentary: only toggle on rising edge (press)
             if (currentActive && !sw.lastManualActive) {
-              // Additional check: ensure minimum time between presses
-              if (now - lastPressTime[i] > 200) {  // 200ms minimum between presses
+              // Additional check: ensure minimum time between presses (increased from 200ms to 500ms)
+              if (now - lastPressTime[i] > 500) {  // 500ms minimum between presses
                 sw.state = !sw.state;
                 sw.manualOverride = true;
                 digitalWrite(sw.relayGpio, 
@@ -602,7 +608,7 @@ void handleManualSwitches() {
                 publishManualSwitchEvent(sw.relayGpio, sw.state, sw.manualGpio);
                 sendStateUpdate(true);
               } else {
-                Serial.printf("[MANUAL] Ignored rapid press on switch %d\n", i);
+                Serial.printf("[MANUAL] Ignored rapid press on switch %d (within 500ms)\n", i);
               }
             }
           } else {

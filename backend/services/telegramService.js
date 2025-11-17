@@ -1223,12 +1223,12 @@ class TelegramService {
     this.lastUpdateId = 0;
     console.log('Telegram polling started (reset update ID to 0)');
 
-    // Poll every 10 seconds to reduce conflicts
+    // Poll every 30 seconds to reduce conflicts
     this.pollingInterval = setInterval(() => {
       this.pollUpdates().catch(error => {
         console.error('Error polling for updates:', error);
       });
-    }, 10000);
+    }, 30000);
   }
 
   // Stop polling
@@ -1269,9 +1269,14 @@ class TelegramService {
     } catch (error) {
       // Handle conflict errors (multiple bot instances)
       if (error.response?.status === 409 && error.response?.data?.description?.includes('terminated by other getUpdates request')) {
-        console.log('Polling conflict detected - resetting update ID and retrying');
-        this.lastUpdateId = 0; // Reset to get latest updates
-        // Don't retry immediately to avoid spam
+        console.log('Polling conflict detected - pausing polling for 30 seconds to resolve conflicts');
+        // Stop polling temporarily to let other instances settle
+        this.stopPolling();
+        // Restart polling after a delay
+        setTimeout(() => {
+          console.log('Restarting polling after conflict resolution delay');
+          this.startPolling();
+        }, 30000); // 30 second delay
         return;
       }
 
